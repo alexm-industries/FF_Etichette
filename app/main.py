@@ -17,10 +17,10 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import storage
+from . import printer, storage
 from .importers import ImportNonDisponibile, trova_importer
 from .jobs import etichette, sequenza
-from .label.label import png_bytes, render_label, render_pdf
+from .label.label import png_bytes, render_etichetta, render_label, render_pdf
 from .models import Commessa, Impostazioni
 
 PORTA = int(os.environ.get("FF_PORT", "8000"))
@@ -121,6 +121,71 @@ def pdf(c: Commessa):
     data = render_pdf(etichette(c, storage.leggi_impostazioni()))
     return Response(data, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{_nome_file(c)}"'})
+
+
+# ---------------------------------------------------------------- stampa di rete
+class RichiestaStampa(BaseModel):
+    commessa: Commessa
+    da_indice: int = 1               # per riprendere un job interrotto
+    conferma_extra: bool = False     # seconda conferma oltre LIMITE_CONFERMA
+
+
+@app.post("/api/stampa")
+def stampa(r: RichiestaStampa):
+    imp = storage.leggi_impostazioni()
+    voci = sequenza(r.commessa)
+    tot = len(voci)
+    if tot == 0:
+        raise HTTPException(400, "Nessuna etichetta da stampare.")
+    if not 1 <= r.da_indice <= tot:
+        raise HTTPException(400, f"L'etichetta di partenza deve essere tra 1 e {tot}.")
+    da_stampare = voci[r.da_indice - 1:]
+    if len(da_stampare) > LIMITE_CONFERMA and not r.conferma_extra:
+        raise HTTPException(409, f"{len(da_stampare)} etichette: serve la seconda conferma.")
+    if not imp.ip_stampante:
+        raise HTTPException(400, "IP della stampante non impostato: vai in Impostazioni.")
+    if any(j.stato in ("in_coda", "in_corso") for j in printer.JOBS.values()):
+        raise HTTPException(409, "C'è già una stampa in corso.")
+    immagini = [render_etichetta(e) for e in etichette(r.commessa, imp, da_stampare)]
+    job = printer.avvia_job(immagini, tot, r.da_indice, imp, al_termine=_dopo_stampa(r.commessa))
+    return job.pubblico()
+
+
+def _dopo_stampa(c: Commessa):
+    def cb(job):
+        pass     # il salvataggio nello storico arriva al passo 5
+    return cb
+
+
+@app.get("/api/stampa/{job_id}")
+def stato_job(job_id: str):
+    job = printer.JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Stampa non trovata.")
+    return job.pubblico()
+
+
+@app.post("/api/stampa/{job_id}/annulla")
+def annulla_job(job_id: str):
+    job = printer.JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Stampa non trovata.")
+    job.annulla = True
+    return job.pubblico()
+
+
+@app.get("/api/stampante/stato")
+def stato_stampante():
+    return printer.stato_stampante(storage.leggi_impostazioni())
+
+
+@app.post("/api/stampante/prova")
+def stampa_prova():
+    imp = storage.leggi_impostazioni()
+    if not imp.ip_stampante:
+        raise HTTPException(400, "IP della stampante non impostato.")
+    img = render_label("Prova di stampa", "Etichetta di prova", "M", 1, 1, True, imp.contatore)
+    return printer.avvia_job([img], 1, 1, imp).pubblico()
 
 
 # ---------------------------------------------------------------- impostazioni e info
