@@ -55,4 +55,5 @@ class Impostazioni(BaseModel):
     etichetta: str = "62x100"
     contatore: bool = False
     mostra_commessa: bool = True
+    compensazione: float = Field(default=0.25, ge=0, le=0.45)   # vedi label.COMPENSAZIONE
     pin: Optional[str] = None

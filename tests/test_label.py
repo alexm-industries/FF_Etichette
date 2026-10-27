@@ -131,3 +131,19 @@ def test_brother_ql_converte_senza_warning(caplog):
     assert len(data) > 1000
     assert not [r for r in caplog.records
                 if r.levelname in ("WARNING", "ERROR") and r.name != "brother_ql.devicedependent"]
+
+
+def test_compensazione_solo_zone_dati():
+    a = render_label("Rossi Srl", "T-shirt 150 g bianco", "S", compensazione=0)
+    boxes = {}
+    b = render_label("Rossi Srl", "T-shirt 150 g bianco", "S", compensazione=0.25, boxes=boxes)
+    assert b.mode == "1" and b.size == (W, H)
+    bb = _diff_bbox(a, b)
+    assert bb is not None
+    assert bb[1] >= boxes["taglie"][1] - 2            # logo, pannello e frase identici
+    # meno nero (assottigliamento), mai di più
+    nero = lambda im: im.convert("L").tobytes().count(0)
+    assert nero(b) < nero(a)
+    # i bordi delle caselle (allineati alla griglia) restano identici
+    x0, y0, x1, y1 = (int(v) for v in boxes["taglie"])
+    assert a.crop((x0, y0, x1, y0 + 3)).tobytes() == b.crop((x0, y0, x1, y0 + 3)).tobytes()

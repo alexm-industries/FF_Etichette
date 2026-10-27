@@ -50,4 +50,4 @@ def etichette(c: Commessa, imp: Impostazioni, voci: List[VoceStampa] | None = No
     tot = len(sequenza(c))
     return [Etichetta(commessa=c.nome, descrizione=v.descrizione, taglia=v.taglia,
                       indice=v.indice, totale=tot, mostra_commessa=imp.mostra_commessa,
-                      contatore=imp.contatore) for v in voci]
+                      contatore=imp.contatore, compensazione=imp.compensazione) for v in voci]

@@ -30,6 +30,15 @@ MM_PER_DOT = 25.4 / DPI
 PAGE_W_MM, PAGE_H_MM = 62.0, 100.0
 SIZES = ["XS", "S", "M", "L", "XL", "XXL", "3XL"]
 ELLIPSIS = "…"
+# Compensazione dell'ingrassamento termico. La QL-810W allarga i segni neri di circa
+# mezzo dot per lato (misurato su una stampa reale: filetti da 3 dot stampati a 3,5-4),
+# e le aperture da 1 dot del grassetto piccolo (S, e, a) si chiudono. Con compensazione > 0
+# le zone dati (taglie, riga Articolo, etichette di riga, sito, contatore) vengono disegnate
+# a 4x e un dot diventa nero solo se è coperto almeno al (50% + compensazione): i bordi dei
+# segni arretrano di circa `compensazione` dot. Il resto (logo, pannello, frase, testo
+# regular da 1 dot del piede, QR) resta identico al template.
+COMPENSAZIONE_DEFAULT = 0.0
+SUPER = 4
 
 
 @dataclass(frozen=True)
@@ -42,6 +51,7 @@ class Etichetta:
     totale: Optional[int] = None
     mostra_commessa: bool = True       # riga = "articolo · commessa" oppure solo articolo
     contatore: bool = False
+    compensazione: float = COMPENSAZIONE_DEFAULT   # 0 … 0,4: quota di copertura in più per il nero
 
 
 # ---------------------------------------------------------------- font
@@ -397,6 +407,7 @@ def compose(ctx, e: Etichetta, boxes: Optional[dict] = None):
     box("riga_cap", cap)
     rect(ctx, X0 + LAB_W, rule_y, CW - LAB_W, 3)
     box("filetto_riga", X0 + LAB_W, rule_y, X1, rule_y + 3)
+    box("etichette_riga", X0 - 2, row_y, X0 + LAB_W - 4, rule_y)
 
     # ---- piede: QR + contatti
     fy = ord_y + lab_cap + 4 + 34
@@ -411,7 +422,8 @@ def compose(ctx, e: Etichetta, boxes: Optional[dict] = None):
     ctx.set_source_rgb(*BLACK); ctx.fill()
 
     tx = qx + qs + 28
-    SANS_B.fill(ctx, "fortitudefabrics.it", tx, qy + 24, 24)
+    url_w = SANS_B.fill(ctx, "fortitudefabrics.it", tx, qy + 24, 24)
+    box("url", tx - 2, qy + 24 - 24 - 2, tx + url_w + 2, qy + 24 + SANS_B.descender(24) + 2)
     SANS_R.fill(ctx, "hello@fortitudefabrics.it", tx, qy + qs - 30, 15)
     SANS_R.fill(ctx, "Personalizzato a Piacenza, Italia", tx, qy + qs, 15)
     box("piede", X0, fy, X1, H - M)
@@ -419,21 +431,42 @@ def compose(ctx, e: Etichetta, boxes: Optional[dict] = None):
 
 # ---------------------------------------------------------------- output
 def render_label(commessa="", descrizione="", taglia=None, indice=None, totale=None,
-                 mostra_commessa=True, contatore=False, boxes=None) -> Image.Image:
+                 mostra_commessa=True, contatore=False, boxes=None,
+                 compensazione=COMPENSAZIONE_DEFAULT) -> Image.Image:
     """Etichetta come PIL.Image modalità "1", 696x1109, 300 dpi, senza antialias."""
-    e = Etichetta(commessa, descrizione, taglia, indice, totale, mostra_commessa, contatore)
+    e = Etichetta(commessa, descrizione, taglia, indice, totale, mostra_commessa, contatore,
+                  compensazione)
     return render_etichetta(e, boxes)
 
 
 def render_etichetta(e: Etichetta, boxes=None) -> Image.Image:
-    surf = cairo.ImageSurface(cairo.FORMAT_RGB24, W, H)
-    ctx = cairo.Context(surf); ctx.set_antialias(cairo.ANTIALIAS_NONE)
-    compose(ctx, e, boxes)
-    surf.flush()
-    img = Image.frombuffer("RGBA", (W, H), bytes(surf.get_data()), "raw", "BGRA", 0, 1)
-    bw = img.convert("L").point(lambda v: 255 if v >= 128 else 0).convert("1", dither=Image.Dither.NONE)
+    b = {} if boxes is None else boxes
+    bw = _raster(e, 1, 128, b)
+    if e.compensazione > 0:
+        # nero solo dove la copertura supera 50% + compensazione
+        soglia = round(255 * (0.5 - min(e.compensazione, 0.45)))
+        fine = _raster(e, SUPER, soglia, {})
+        for k in ("taglie", "riga", "etichette_riga", "url", "contatore"):
+            if k in b:
+                x0, y0, x1, y1 = b[k]
+                r = (max(0, math.floor(x0) - 1), max(0, math.floor(y0) - 1),
+                     min(W, math.ceil(x1) + 1), min(H, math.ceil(y1) + 1))
+                bw.paste(fine.crop(r), r[:2])
     bw.info["dpi"] = (DPI, DPI)
     return bw
+
+
+def _raster(e: Etichetta, k: int, soglia: int, boxes: dict) -> Image.Image:
+    """Disegna a k volte la risoluzione, media k x k campioni per dot, soglia a 1 bit."""
+    surf = cairo.ImageSurface(cairo.FORMAT_RGB24, W * k, H * k)
+    ctx = cairo.Context(surf); ctx.set_antialias(cairo.ANTIALIAS_NONE)
+    ctx.scale(k, k)
+    compose(ctx, e, boxes)
+    surf.flush()
+    img = Image.frombuffer("RGBA", (W * k, H * k), bytes(surf.get_data()), "raw", "BGRA", 0, 1).convert("L")
+    if k > 1:
+        img = img.reduce(k)
+    return img.point(lambda v: 255 if v >= soglia else 0).convert("1", dither=Image.Dither.NONE)
 
 
 def png_bytes(img: Image.Image) -> bytes:

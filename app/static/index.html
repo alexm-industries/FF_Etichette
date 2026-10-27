@@ -103,6 +103,17 @@
         <input type="checkbox" name="contatore">
         <span>Contatore "3/5" sull'etichetta</span>
       </label>
+      <label class="field">
+        <span class="field-label">Compensazione stampa termica</span>
+        <select name="compensazione">
+          <option value="0">Nessuna (0)</option>
+          <option value="0.15">Leggera (0,15)</option>
+          <option value="0.25">Media (0,25)</option>
+          <option value="0.35">Forte (0,35)</option>
+        </select>
+      </label>
+      <p class="muted">Assottiglia il testo piccolo in grassetto perché la stampante non chiuda le lettere (S che sembra 8). Stampa le 4 prove e scegli quella più nitida.</p>
+      <button class="btn btn-outline" type="button" id="prova-comp">Stampa prova compensazione (4 etichette)</button>
 
       <h3>Accesso</h3>
       <label class="field">

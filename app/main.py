@@ -17,10 +17,10 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import storage
+from . import printer, storage
 from .importers import ImportNonDisponibile, trova_importer
 from .jobs import etichette, sequenza
-from .label.label import png_bytes, render_label, render_pdf
+from .label.label import png_bytes, render_etichetta, render_label, render_pdf
 from .models import Commessa, Impostazioni
 
 PORTA = int(os.environ.get("FF_PORT", "8000"))
@@ -73,8 +73,9 @@ def accesso(a: Accesso, response: Response):
 
 # ---------------------------------------------------------------- anteprima, riepilogo, PDF
 @lru_cache(maxsize=256)
-def _anteprima(commessa, articolo, taglia, i, n, mostra_commessa, contatore) -> bytes:
-    return png_bytes(render_label(commessa, articolo, taglia or None, i, n, mostra_commessa, contatore))
+def _anteprima(commessa, articolo, taglia, i, n, mostra_commessa, contatore, compensazione) -> bytes:
+    return png_bytes(render_label(commessa, articolo, taglia or None, i, n, mostra_commessa, contatore,
+                                  compensazione=compensazione))
 
 
 @app.get("/api/anteprima.png")
@@ -82,7 +83,7 @@ def anteprima(commessa: str = "", articolo: str = "", taglia: str = "",
               i: Optional[int] = Query(None, ge=1), n: Optional[int] = Query(None, ge=1)):
     imp = storage.leggi_impostazioni()
     png = _anteprima(commessa[:200], articolo[:300], taglia[:40], i, n,
-                     imp.mostra_commessa, imp.contatore)
+                     imp.mostra_commessa, imp.contatore, imp.compensazione)
     return Response(png, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
@@ -123,6 +124,87 @@ def pdf(c: Commessa):
                     headers={"Content-Disposition": f'attachment; filename="{_nome_file(c)}"'})
 
 
+# ---------------------------------------------------------------- stampa di rete
+class RichiestaStampa(BaseModel):
+    commessa: Commessa
+    da_indice: int = 1               # per riprendere un job interrotto
+    conferma_extra: bool = False     # seconda conferma oltre LIMITE_CONFERMA
+
+
+@app.post("/api/stampa")
+def stampa(r: RichiestaStampa):
+    imp = storage.leggi_impostazioni()
+    voci = sequenza(r.commessa)
+    tot = len(voci)
+    if tot == 0:
+        raise HTTPException(400, "Nessuna etichetta da stampare.")
+    if not 1 <= r.da_indice <= tot:
+        raise HTTPException(400, f"L'etichetta di partenza deve essere tra 1 e {tot}.")
+    da_stampare = voci[r.da_indice - 1:]
+    if len(da_stampare) > LIMITE_CONFERMA and not r.conferma_extra:
+        raise HTTPException(409, f"{len(da_stampare)} etichette: serve la seconda conferma.")
+    if not imp.ip_stampante:
+        raise HTTPException(400, "IP della stampante non impostato: vai in Impostazioni.")
+    if any(j.stato in ("in_coda", "in_corso") for j in printer.JOBS.values()):
+        raise HTTPException(409, "C'è già una stampa in corso.")
+    immagini = [render_etichetta(e) for e in etichette(r.commessa, imp, da_stampare)]
+    job = printer.avvia_job(immagini, tot, r.da_indice, imp, al_termine=_dopo_stampa(r.commessa))
+    return job.pubblico()
+
+
+def _dopo_stampa(c: Commessa):
+    def cb(job):
+        pass     # il salvataggio nello storico arriva al passo 5
+    return cb
+
+
+@app.get("/api/stampa/{job_id}")
+def stato_job(job_id: str):
+    job = printer.JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Stampa non trovata.")
+    return job.pubblico()
+
+
+@app.post("/api/stampa/{job_id}/annulla")
+def annulla_job(job_id: str):
+    job = printer.JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Stampa non trovata.")
+    job.annulla = True
+    return job.pubblico()
+
+
+@app.get("/api/stampante/stato")
+def stato_stampante():
+    return printer.stato_stampante(storage.leggi_impostazioni())
+
+
+@app.post("/api/stampante/prova")
+def stampa_prova():
+    imp = storage.leggi_impostazioni()
+    if not imp.ip_stampante:
+        raise HTTPException(400, "IP della stampante non impostato.")
+    img = render_label("Prova di stampa", "Etichetta di prova", "M", 1, 1, True, imp.contatore,
+                       compensazione=imp.compensazione)
+    return printer.avvia_job([img], 1, 1, imp).pubblico()
+
+
+LIVELLI_COMPENSAZIONE = [0.0, 0.15, 0.25, 0.35]
+
+
+@app.post("/api/stampante/prova-compensazione")
+def stampa_prova_compensazione():
+    """Quattro etichette S, una per livello: si sceglie quella che stampata è più nitida."""
+    imp = storage.leggi_impostazioni()
+    if not imp.ip_stampante:
+        raise HTTPException(400, "IP della stampante non impostato.")
+    n = len(LIVELLI_COMPENSAZIONE)
+    imgs = [render_label("Prova compensazione", f"Livello {c:.2f}".replace(".", ","), "S", i + 1, n,
+                         True, True, compensazione=c) for i, c in enumerate(LIVELLI_COMPENSAZIONE)]
+    return printer.avvia_job(imgs, n, 1, imp).pubblico()
+
+
 # ---------------------------------------------------------------- impostazioni e info
 @app.get("/api/impostazioni")
 def get_impostazioni():
@@ -137,6 +219,7 @@ class ModificaImpostazioni(BaseModel):
     etichetta: Optional[str] = None
     contatore: Optional[bool] = None
     mostra_commessa: Optional[bool] = None
+    compensazione: Optional[float] = None
     pin: Optional[str] = None        # "" = toglie il PIN
 
 
@@ -153,6 +236,8 @@ def put_impostazioni(m: ModificaImpostazioni, response: Response):
             response.set_cookie("ff_pin", pin, httponly=True, samesite="strict", max_age=60 * 60 * 24 * 365)
     if dati.get("ip_stampante"):
         dati["ip_stampante"] = dati["ip_stampante"].strip()
+    if "compensazione" in dati and not 0 <= dati["compensazione"] <= 0.45:
+        raise HTTPException(400, "Compensazione fuori intervallo.")
     storage.salva_impostazioni(imp.model_copy(update=dati))
     _anteprima.cache_clear()
     return get_impostazioni()
