@@ -73,8 +73,9 @@ def accesso(a: Accesso, response: Response):
 
 # ---------------------------------------------------------------- anteprima, riepilogo, PDF
 @lru_cache(maxsize=256)
-def _anteprima(commessa, articolo, taglia, i, n, mostra_commessa, contatore) -> bytes:
-    return png_bytes(render_label(commessa, articolo, taglia or None, i, n, mostra_commessa, contatore))
+def _anteprima(commessa, articolo, taglia, i, n, mostra_commessa, contatore, compensazione) -> bytes:
+    return png_bytes(render_label(commessa, articolo, taglia or None, i, n, mostra_commessa, contatore,
+                                  compensazione=compensazione))
 
 
 @app.get("/api/anteprima.png")
@@ -82,7 +83,7 @@ def anteprima(commessa: str = "", articolo: str = "", taglia: str = "",
               i: Optional[int] = Query(None, ge=1), n: Optional[int] = Query(None, ge=1)):
     imp = storage.leggi_impostazioni()
     png = _anteprima(commessa[:200], articolo[:300], taglia[:40], i, n,
-                     imp.mostra_commessa, imp.contatore)
+                     imp.mostra_commessa, imp.contatore, imp.compensazione)
     return Response(png, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
@@ -184,8 +185,24 @@ def stampa_prova():
     imp = storage.leggi_impostazioni()
     if not imp.ip_stampante:
         raise HTTPException(400, "IP della stampante non impostato.")
-    img = render_label("Prova di stampa", "Etichetta di prova", "M", 1, 1, True, imp.contatore)
+    img = render_label("Prova di stampa", "Etichetta di prova", "M", 1, 1, True, imp.contatore,
+                       compensazione=imp.compensazione)
     return printer.avvia_job([img], 1, 1, imp).pubblico()
+
+
+LIVELLI_COMPENSAZIONE = [0.0, 0.15, 0.25, 0.35]
+
+
+@app.post("/api/stampante/prova-compensazione")
+def stampa_prova_compensazione():
+    """Quattro etichette S, una per livello: si sceglie quella che stampata è più nitida."""
+    imp = storage.leggi_impostazioni()
+    if not imp.ip_stampante:
+        raise HTTPException(400, "IP della stampante non impostato.")
+    n = len(LIVELLI_COMPENSAZIONE)
+    imgs = [render_label("Prova compensazione", f"Livello {c:.2f}".replace(".", ","), "S", i + 1, n,
+                         True, True, compensazione=c) for i, c in enumerate(LIVELLI_COMPENSAZIONE)]
+    return printer.avvia_job(imgs, n, 1, imp).pubblico()
 
 
 # ---------------------------------------------------------------- impostazioni e info
@@ -202,6 +219,7 @@ class ModificaImpostazioni(BaseModel):
     etichetta: Optional[str] = None
     contatore: Optional[bool] = None
     mostra_commessa: Optional[bool] = None
+    compensazione: Optional[float] = None
     pin: Optional[str] = None        # "" = toglie il PIN
 
 
@@ -218,6 +236,8 @@ def put_impostazioni(m: ModificaImpostazioni, response: Response):
             response.set_cookie("ff_pin", pin, httponly=True, samesite="strict", max_age=60 * 60 * 24 * 365)
     if dati.get("ip_stampante"):
         dati["ip_stampante"] = dati["ip_stampante"].strip()
+    if "compensazione" in dati and not 0 <= dati["compensazione"] <= 0.45:
+        raise HTTPException(400, "Compensazione fuori intervallo.")
     storage.salva_impostazioni(imp.model_copy(update=dati))
     _anteprima.cache_clear()
     return get_impostazioni()

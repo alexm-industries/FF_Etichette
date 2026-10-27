@@ -375,6 +375,7 @@ async function caricaImpostazioni() {
   f.modello.value = impostazioni.modello || "QL-810W";
   f.etichetta.value = impostazioni.etichetta || "62x100";
   f.contatore.checked = !!impostazioni.contatore;
+  f.compensazione.value = String(impostazioni.compensazione ?? 0.25);
   f.mostra_commessa.checked = impostazioni.mostra_commessa !== false;
   f.pin.value = "";
   $("#pin-stato").textContent = impostazioni.pin_attivo ? "PIN attivo. Scrivi un nuovo PIN per cambiarlo." : "Nessun PIN impostato.";
@@ -388,6 +389,7 @@ async function salvaImpostazioni(ev) {
   const body = {
     ip_stampante: f.ip_stampante.value.trim(), modello: f.modello.value, etichetta: f.etichetta.value,
     contatore: f.contatore.checked, mostra_commessa: f.mostra_commessa.checked,
+    compensazione: parseFloat(f.compensazione.value),
   };
   const pin = f.pin.value.trim();
   if (pin) body.pin = pin;
@@ -412,9 +414,18 @@ async function verificaStampante() {
   }
 }
 
-async function stampaProva() {
-  try { await api("/api/stampante/prova", { method: "POST" }); toast("Etichetta di prova inviata"); }
-  catch (e) { toast(e.status === 404 ? "Stampa di rete non ancora attiva" : e.message, true); }
+async function stampaProva(percorso = "/api/stampante/prova") {
+  let job;
+  try { job = await (await api(percorso, { method: "POST" })).json(); }
+  catch (e) { return toast(e.message, true); }
+  toast("Prova inviata alla stampante…");
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 500));
+    let s;
+    try { s = await (await api(`/api/stampa/${job.id}`)).json(); } catch (e) { return toast(e.message, true); }
+    if (s.stato === "completato") return toast(s.totale > 1 ? `${s.totale} etichette di prova stampate` : "Etichetta di prova stampata");
+    if (s.stato === "errore" || s.stato === "annullato") return toast(s.errore || "Stampa non riuscita", true);
+  }
 }
 
 // ------------------------------------------------------------------ viste
@@ -472,7 +483,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#stampa").addEventListener("click", apriConferma);
   $("#form-imp").addEventListener("submit", salvaImpostazioni);
   $("#verifica").addEventListener("click", verificaStampante);
-  $("#prova").addEventListener("click", stampaProva);
+  $("#prova").addEventListener("click", () => stampaProva());
+  $("#prova-comp").addEventListener("click", () => stampaProva("/api/stampante/prova-compensazione"));
   $("#togli-pin").addEventListener("click", async () => {
     if (!confirm("Togliere il PIN? L'app sarà accessibile a tutti sulla rete locale.")) return;
     try { await api("/api/impostazioni", { method: "PUT", json: { pin: "" } }); await caricaImpostazioni(); toast("PIN rimosso"); }
