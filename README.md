@@ -101,7 +101,10 @@ Facoltativa una colonna `Commessa` (o `Ordine`, `Cliente`): se manca, il nome è
 
 ## Impostazioni
 
-- IP, modello ed etichetta della stampante.
+- IP, modello ed etichetta della stampante. **Etichetta** = rotolo inserito:
+  fustellata 62 x 100 mm (DK-11202), continua 62 mm (DK-22205) o continua nero/rosso 62 mm
+  (DK-22251). Sui continui l'etichetta viene tagliata a 100 mm, con la stessa grafica della
+  fustellata; sul nero/rosso la stampa è in nero (modalità due colori, richiesta dal rotolo).
 - **Mostra il nome commessa** accanto all'articolo sull'etichetta (sì/no).
 - **Contatore "3/5"** sull'etichetta (default spento).
 - **Compensazione stampa termica**: la stampante ingrassa leggermente il nero e il grassetto

@@ -116,16 +116,19 @@
         <span class="field-label">Indirizzo IP</span>
         <input name="ip_stampante" inputmode="decimal" placeholder="es. 192.168.1.50" autocomplete="off">
       </label>
-      <div class="grid2">
-        <label class="field">
-          <span class="field-label">Modello</span>
-          <select name="modello"><option>QL-810W</option><option>QL-820NWB</option></select>
-        </label>
-        <label class="field">
-          <span class="field-label">Etichetta</span>
-          <select name="etichetta"><option value="62x100">62x100 mm</option></select>
-        </label>
-      </div>
+      <label class="field">
+        <span class="field-label">Modello</span>
+        <select name="modello"><option>QL-810W</option><option>QL-820NWB</option></select>
+      </label>
+      <label class="field">
+        <span class="field-label">Etichetta (rotolo nella stampante)</span>
+        <select name="etichetta">
+          <option value="62x100">Fustellata 62 x 100 mm (DK-11202)</option>
+          <option value="62">Continua 62 mm, taglio a 100 mm (DK-22205)</option>
+          <option value="62red">Continua nero/rosso 62 mm, taglio a 100 mm (DK-22251)</option>
+        </select>
+      </label>
+      <p class="muted">Deve corrispondere al rotolo inserito, altrimenti la stampante va in errore. Sui rotoli continui l'etichetta viene tagliata a 100 mm, uguale alla fustellata.</p>
       <div class="printer-status">
         <span id="stato-stampante" class="pill">Stato non verificato</span>
         <button class="btn btn-outline" type="button" id="verifica">Verifica stampante</button>

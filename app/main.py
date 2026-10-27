@@ -290,6 +290,8 @@ def put_impostazioni(m: ModificaImpostazioni, response: Response):
         dati["ip_stampante"] = dati["ip_stampante"].strip()
     if "compensazione" in dati and not 0 <= dati["compensazione"] <= 0.45:
         raise HTTPException(400, "Compensazione fuori intervallo.")
+    if "etichetta" in dati and dati["etichetta"] not in printer.ROTOLI:
+        raise HTTPException(400, "Etichetta non supportata.")
     storage.salva_impostazioni(imp.model_copy(update=dati))
     _anteprima.cache_clear()
     return get_impostazioni()

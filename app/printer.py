@@ -31,8 +31,19 @@ PORTA = 9100
 TIMEOUT_CONNESSIONE = 3.0
 TIMEOUT_INVIO = 30.0
 
-# DK-11202: fustellata 62 x 100 mm (come la riporta lo stato della stampante)
-ROTOLI = {"62x100": (62, 100)}
+# Rotoli supportati, con l'identificativo di brother_ql. Valore: (larghezza, lunghezza) in mm come
+# li riporta lo stato della stampante (0 = continuo), nome per i messaggi.
+ROTOLI = {
+    "62x100": ((62, 100), "DK-11202 fustellato 62 x 100 mm"),
+    "62": ((62, 0), "continuo 62 mm (DK-22205)"),
+    "62red": ((62, 0), "continuo nero/rosso 62 mm (DK-22251)"),
+}
+# Sul continuo l'etichetta si taglia a 100 mm come la fustellata. brother_ql aggiunge un avanzamento
+# di 35 dot (feed_margin) in testa e in coda: 100 mm = 1181 dot, quindi 1111 righe di immagine.
+# L'etichetta (1109 righe) viene centrata con 1 riga bianca sopra e sotto: grafica identica.
+LUNGHEZZA_CONTINUO_MM = 100
+MARGINE_CONTINUO = 35
+RIGHE_CONTINUO = round(LUNGHEZZA_CONTINUO_MM / 25.4 * 300) - 2 * MARGINE_CONTINUO
 
 ERRORI_IT = {
     "No media when printing": "Etichette finite o rotolo non inserito.",
@@ -42,7 +53,7 @@ ERRORI_IT = {
     "Printer turned off": "La stampante è spenta.",
     "High-voltage adapter": "Problema di alimentazione.",
     "Fan doesn't work": "Ventola guasta.",
-    "Replace media error": "Rotolo sbagliato: inserisci DK-11202 62 x 100 mm.",
+    "Replace media error": "Il rotolo nella stampante non è quello impostato: controlla Impostazioni › Etichetta.",
     "Expansion buffer full": "Memoria della stampante piena.",
     "Transmission/Communication error": "Errore di comunicazione con la stampante.",
     "Communication buffer full": "Memoria di comunicazione piena.",
@@ -70,11 +81,24 @@ class _RasterConIndici(BrotherQLRaster):
         self.fine_pagine.append(len(self.data))
 
 
+def per_rotolo(img: Image.Image, etichetta: str) -> Image.Image:
+    """Adatta l'etichetta 696x1109 al rotolo: sul continuo la porta a RIGHE_CONTINUO righe
+    (taglio a 100 mm); sul nero/rosso la passa in RGB (brother_ql separa nero e rosso dai colori)."""
+    if etichetta in ("62", "62red"):
+        sopra = (RIGHE_CONTINUO - img.height) // 2
+        nuova = Image.new(img.mode, (img.width, RIGHE_CONTINUO), 1 if img.mode == "1" else 255)
+        nuova.paste(img, (0, sopra))
+        img = nuova
+    if etichetta == "62red":
+        img = img.convert("RGB")
+    return img
+
+
 def raster(immagini: List[Image.Image], imp: Impostazioni) -> tuple[bytes, List[int]]:
     """Flusso raster di un unico job + offset di fine di ogni etichetta."""
     qlr = _RasterConIndici(imp.modello)
-    convert(qlr, immagini, imp.etichetta, cut=True, dither=False, compress=True,
-            red=False, rotate="0", dpi_600=False, hq=True, threshold=50)
+    convert(qlr, [per_rotolo(i, imp.etichetta) for i in immagini], imp.etichetta, cut=True, dither=False,
+            compress=True, red=imp.etichetta == "62red", rotate="0", dpi_600=False, hq=True, threshold=50)
     data = bytearray(qlr.data)
     # brother_ql 0.9 chiude ogni pagina con 0x1A (fine job): per avere un unico job
     # le pagine intermedie devono finire con 0x0C (form feed), solo l'ultima con 0x1A.
@@ -131,10 +155,12 @@ def _leggi_stati(s: socket.socket, attesa: float) -> List[dict]:
 
 def problemi(stato: dict, imp: Impostazioni) -> List[str]:
     out = [ERRORI_IT.get(e, e) for e in stato.get("errors", [])]
-    atteso = ROTOLI.get(imp.etichetta)
+    atteso, nome = ROTOLI.get(imp.etichetta, (None, ""))
     w, l = stato.get("media_width"), stato.get("media_length")
-    if atteso and w and (w, l) != atteso and not any("Rotolo" in m for m in out):
-        out.append(f"Rotolo sbagliato: nella stampante c'è {w}x{l} mm, serve {atteso[0]}x{atteso[1]} mm (DK-11202).")
+    if atteso and w and (w, l or 0) != atteso and not any("rotolo" in m.lower() for m in out):
+        c_è = f"{w} mm continuo" if not l else f"{w}x{l} mm"
+        out.append(f"Rotolo sbagliato: nella stampante c'è un {c_è}, è impostato {nome}. "
+                   "Cambia rotolo o scegli quello giusto in Impostazioni › Etichetta.")
     return out
 
 
