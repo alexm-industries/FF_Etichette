@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FF Etichette</title>
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/icons/favicon.png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="FF Etichette">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top">
+  <img src="/icons/icon-192.png" alt="" class="top-icon">
+  <h1>FF Etichette</h1>
+  <span class="top-sub" id="top-sub">Fortitude Fabrics</span>
+</header>
+
+<main>
+  <!-- ============ NUOVA COMMESSA ============ -->
+  <section id="v-nuova" class="view">
+    <div class="cols">
+      <div class="col-form">
+        <label class="field">
+          <span class="field-label">Commessa</span>
+          <input id="commessa" type="text" placeholder="Cliente, ordine o riferimento" autocomplete="off" maxlength="200">
+        </label>
+
+        <div id="articoli"></div>
+
+        <button class="btn btn-outline btn-wide" id="add-articolo" type="button">+ Aggiungi articolo</button>
+
+        <div class="row-actions">
+          <button class="btn btn-ghost" id="svuota" type="button">Svuota</button>
+          <button class="btn btn-ghost" id="importa" type="button" title="Disponibile quando definiamo il formato del file d'ordine" disabled>Importa file</button>
+        </div>
+      </div>
+
+      <aside class="col-preview">
+        <div class="preview-card">
+          <div class="preview-head">
+            <h2>Anteprima</h2>
+            <span id="preview-label" class="muted"></span>
+          </div>
+          <div class="preview-frame"><img id="preview" alt="Anteprima etichetta" width="696" height="1109"></div>
+        </div>
+        <div class="qr-card" id="qr-card" hidden>
+          <div id="qr"></div>
+          <div>
+            <h2>Apri sul telefono</h2>
+            <p class="muted">Inquadra il codice con un telefono connesso alla stessa rete Wi-Fi.</p>
+            <p class="mono" id="lan-url"></p>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============ STORICO ============ -->
+  <section id="v-storico" class="view" hidden>
+    <h2 class="view-title">Storico</h2>
+    <label class="field">
+      <span class="field-label">Cerca</span>
+      <input id="cerca" type="search" placeholder="Commessa o articolo">
+    </label>
+    <div id="storico-lista"><p class="muted">Lo storico arriva con il passo 5.</p></div>
+  </section>
+
+  <!-- ============ IMPOSTAZIONI ============ -->
+  <section id="v-impostazioni" class="view" hidden>
+    <h2 class="view-title">Impostazioni</h2>
+    <form id="form-imp" class="card">
+      <h3>Stampante</h3>
+      <label class="field">
+        <span class="field-label">Indirizzo IP</span>
+        <input name="ip_stampante" inputmode="decimal" placeholder="es. 192.168.1.50" autocomplete="off">
+      </label>
+      <div class="grid2">
+        <label class="field">
+          <span class="field-label">Modello</span>
+          <select name="modello"><option>QL-810W</option><option>QL-820NWB</option></select>
+        </label>
+        <label class="field">
+          <span class="field-label">Etichetta</span>
+          <select name="etichetta"><option value="62x100">62x100 mm</option></select>
+        </label>
+      </div>
+      <div class="printer-status">
+        <span id="stato-stampante" class="pill">Stato non verificato</span>
+        <button class="btn btn-outline" type="button" id="verifica">Verifica stampante</button>
+        <button class="btn btn-outline" type="button" id="prova">Stampa etichetta di prova</button>
+      </div>
+
+      <h3>Etichetta</h3>
+      <label class="switch">
+        <input type="checkbox" name="mostra_commessa">
+        <span>Mostra il nome commessa accanto all'articolo</span>
+      </label>
+      <label class="switch">
+        <input type="checkbox" name="contatore">
+        <span>Contatore "3/5" sull'etichetta</span>
+      </label>
+
+      <h3>Accesso</h3>
+      <label class="field">
+        <span class="field-label">PIN (4-8 cifre, vuoto = nessun PIN)</span>
+        <input name="pin" inputmode="numeric" pattern="\d{4,8}" placeholder="Nessun PIN" autocomplete="off">
+      </label>
+      <p class="muted" id="pin-stato"></p>
+      <button class="btn btn-ghost" type="button" id="togli-pin" hidden>Togli PIN</button>
+
+      <button class="btn btn-primary btn-wide" type="submit">Salva impostazioni</button>
+    </form>
+  </section>
+</main>
+
+<!-- barra azione principale (solo vista Nuova) -->
+<div class="actionbar" id="actionbar">
+  <div class="actionbar-total"><strong id="tot">0</strong><span>etichette</span></div>
+  <button class="btn btn-outline" id="pdf" type="button">Scarica PDF</button>
+  <button class="btn btn-primary" id="stampa" type="button" disabled>Stampa 0 etichette</button>
+</div>
+
+<nav class="tabs">
+  <button data-view="nuova" class="tab is-active" type="button">Nuova</button>
+  <button data-view="storico" class="tab" type="button">Storico</button>
+  <button data-view="impostazioni" class="tab" type="button">Impostazioni</button>
+</nav>
+
+<!-- conferma stampa -->
+<div class="sheet-backdrop" id="sheet" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+    <h2 id="sheet-title">Conferma stampa</h2>
+    <p class="muted" id="sheet-sub"></p>
+    <div class="sheet-body" id="sheet-body"></div>
+    <div class="sheet-warn" id="sheet-warn" hidden></div>
+    <div class="sheet-actions" id="sheet-actions"></div>
+  </div>
+</div>
+
+<!-- PIN -->
+<div class="sheet-backdrop" id="pin-sheet" hidden>
+  <form class="sheet" id="pin-form">
+    <h2>Inserisci il PIN</h2>
+    <input id="pin-input" type="password" inputmode="numeric" autocomplete="off" class="pin-input">
+    <p class="err" id="pin-err"></p>
+    <button class="btn btn-primary btn-wide" type="submit">Entra</button>
+  </form>
+</div>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<template id="tpl-articolo">
+  <div class="card articolo">
+    <div class="articolo-head">
+      <span class="articolo-n"></span>
+      <span class="articolo-tot"></span>
+      <button class="icon-btn rm-articolo" type="button" aria-label="Elimina articolo">&times;</button>
+    </div>
+    <label class="field">
+      <span class="field-label">Descrizione</span>
+      <input class="descrizione" type="text" placeholder="es. T-shirt 150 g bianco" maxlength="300">
+    </label>
+    <div class="righe"></div>
+    <button class="btn btn-outline btn-wide add-taglia" type="button">+ Aggiungi taglia</button>
+  </div>
+</template>
+
+<template id="tpl-riga">
+  <div class="riga">
+    <div class="riga-taglia">
+      <select class="taglia" aria-label="Taglia">
+        <option>XS</option><option>S</option><option>M</option><option>L</option>
+        <option>XL</option><option>XXL</option><option>3XL</option>
+        <option value="__altra">Altra…</option>
+      </select>
+      <input class="taglia-altra" type="text" placeholder="es. 8-10A" maxlength="40" hidden aria-label="Taglia personalizzata">
+    </div>
+    <div class="stepper">
+      <button type="button" class="step meno" aria-label="Meno">&minus;</button>
+      <input class="copie" type="number" inputmode="numeric" min="0" max="9999" value="1" aria-label="Copie">
+      <button type="button" class="step piu" aria-label="Più">+</button>
+    </div>
+    <button class="icon-btn rm-riga" type="button" aria-label="Elimina taglia">&times;</button>
+  </div>
+</template>
+
+<script src="/app.js"></script>
+</body>
+</html>
