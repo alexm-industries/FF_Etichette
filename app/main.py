@@ -43,7 +43,7 @@ def _ip_locale(host: Optional[str]) -> bool:
     return ip.is_private or ip.is_loopback or ip.is_link_local
 
 
-PUBBLICI = {"/api/accesso", "/manifest.webmanifest", "/sw.js"}
+PUBBLICI = {"/api/accesso"}
 
 
 @app.middleware("http")
@@ -189,5 +189,7 @@ async def importa(file: UploadFile = File(...)):
     return imp.importa(contenuto).model_dump()
 
 
+app.mount("/fonts", StaticFiles(directory=os.path.join(os.path.dirname(STATIC), "label", "assets", "fonts")),
+          name="fonts")
 if os.path.isdir(STATIC):
     app.mount("/", StaticFiles(directory=STATIC, html=True), name="static")
