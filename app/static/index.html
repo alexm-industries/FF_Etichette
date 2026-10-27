@@ -24,18 +24,47 @@
   <section id="v-nuova" class="view">
     <div class="cols">
       <div class="col-form">
+        <div class="segmented" role="radiogroup" aria-label="Tipo di etichetta">
+          <button type="button" role="radio" data-tipo="capo">Singolo capo<small>Un'etichetta per busta</small></button>
+          <button type="button" role="radio" data-tipo="ordine">Intero ordine<small>Riepilogo per la consegna</small></button>
+        </div>
+
+        <p class="bozza-info" id="bozza-info" hidden></p>
+
         <label class="field">
           <span class="field-label">Commessa</span>
           <input id="commessa" type="text" placeholder="Cliente, ordine o riferimento" autocomplete="off" maxlength="200">
         </label>
 
+        <div class="card" id="ordine-opzioni" hidden>
+          <div class="ordine-copie">
+            <div>
+              <span class="field-label">Copie dell'etichetta</span>
+              <span class="muted">Una per ogni scatola o busta di consegna</span>
+            </div>
+            <div class="stepper">
+              <button type="button" class="step" id="copie-meno" aria-label="Meno">&minus;</button>
+              <input class="copie" id="copie-ordine" type="number" inputmode="numeric" min="1" max="99" value="1" aria-label="Copie dell'etichetta">
+              <button type="button" class="step" id="copie-piu" aria-label="Più">+</button>
+            </div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="numera-colli">
+            <span>Numera i colli ("Collo 1/3, 2/3…")</span>
+          </label>
+          <p class="muted">Per ogni articolo indica quanti capi ci sono per taglia: l'etichetta riporta il riepilogo dell'intero ordine.</p>
+        </div>
+
         <div id="articoli"></div>
 
         <button class="btn btn-outline btn-wide" id="add-articolo" type="button">+ Aggiungi articolo</button>
 
+        <button class="btn btn-dark btn-wide salva-dopo" id="salva-dopo" type="button">Salva per dopo</button>
+
         <div class="row-actions">
           <button class="btn btn-ghost" id="svuota" type="button">Svuota</button>
-          <button class="btn btn-ghost" id="importa" type="button" title="Disponibile quando definiamo il formato del file d'ordine" disabled>Importa file</button>
+          <button class="btn btn-ghost" id="importa" type="button" title="File CSV o Excel con articoli, taglie e quantità">Importa file</button>
+          <input type="file" id="file-import" accept=".csv,.tsv,.txt,.xlsx,.xlsm" hidden>
         </div>
       </div>
 
@@ -44,6 +73,10 @@
           <div class="preview-head">
             <h2>Anteprima</h2>
             <span id="preview-label" class="muted"></span>
+            <span class="pager" id="pager" hidden>
+              <button type="button" class="icon-btn" id="foglio-prec" aria-label="Foglio precedente">&lsaquo;</button>
+              <button type="button" class="icon-btn" id="foglio-succ" aria-label="Foglio successivo">&rsaquo;</button>
+            </span>
           </div>
           <div class="preview-frame"><img id="preview" alt="Anteprima etichetta" width="696" height="1109"></div>
         </div>
@@ -62,6 +95,11 @@
   <!-- ============ STORICO ============ -->
   <section id="v-storico" class="view" hidden>
     <h2 class="view-title">Storico</h2>
+    <div class="filtri" role="radiogroup" aria-label="Filtra">
+      <button type="button" role="radio" data-stato="" class="is-on">Tutte</button>
+      <button type="button" role="radio" data-stato="bozze">Da stampare</button>
+      <button type="button" role="radio" data-stato="stampate">Stampate</button>
+    </div>
     <label class="field">
       <span class="field-label">Cerca</span>
       <input id="cerca" type="search" placeholder="Commessa o articolo">

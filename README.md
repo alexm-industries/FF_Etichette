@@ -62,6 +62,34 @@ Conviene assegnare alla stampante un **IP fisso** (prenotazione DHCP nel router)
 Ordine di stampa: articolo per articolo; dentro l'articolo le taglie dalla più piccola alla più
 grande (taglie bimbo come 4-6A e 8-10A, poi XS…3XL, poi 4XL, 5XL…, poi le altre personalizzate).
 
+### Singolo capo / Intero ordine
+
+In alto nel modulo si sceglie il tipo di etichetta:
+
+- **Singolo capo**: un'etichetta per busta, come sopra (il numero accanto alla taglia = etichette).
+- **Intero ordine**: un'etichetta di **riepilogo** da mettere sulla scatola o busta di consegna.
+  Stessa testata e stesso piede, fascia nera con il nome commessa, poi per ogni articolo le caselle
+  taglia con il numero di capi (il numero accanto alla taglia = capi). In fondo il totale capi.
+  - **Copie dell'etichetta**: una per collo; con **Numera i colli** in testata compare "COLLO 1/3".
+  - Se gli articoli non stanno su un'etichetta, il riepilogo continua su più fogli ("foglio 1/2 · segue").
+
+### Salva per dopo
+
+**Salva per dopo** (in fondo al modulo) mette la commessa nello storico senza stamparla. In
+**Storico → Da stampare** si apre e si sceglie **Stampa**, **Modifica** o **Elimina**. Una volta
+stampata non si modifica più: si ristampa o si duplica.
+
+### Importa file
+
+**Importa file** legge un file CSV o Excel (.xlsx) e compila il modulo, da controllare prima di
+stampare. Le colonne si riconoscono dal nome dell'intestazione:
+
+- una riga per articolo e taglia: `Articolo | (Grammatura) | (Colore) | Taglia | Quantità`;
+- oppure una colonna per taglia: `Articolo | (Colore) | XS | S | M | L | …`.
+
+Facoltativa una colonna `Commessa` (o `Ordine`, `Cliente`): se manca, il nome è quello del file.
+Il formato definitivo del file d'ordine Fortitude va ancora fissato su un file reale.
+
 ## Impostazioni
 
 - IP, modello ed etichetta della stampante.

@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from typing import List, Tuple
 
-from .label.label import SIZES, Etichetta
+from .label.label import SIZES, Etichetta, EtichettaOrdine, impagina_ordine
 from .models import Commessa, Impostazioni, VoceStampa
 
 _N_XL = re.compile(r"^(\d+)\s*XL$", re.I)          # 4XL, 5XL…
@@ -43,6 +43,37 @@ def sequenza(c: Commessa) -> List[VoceStampa]:
                 voci.append(VoceStampa(indice=n, articolo=ai, descrizione=art.descrizione,
                                        taglia=r.taglia, copia=k + 1, copie=r.copie))
     return voci
+
+
+def articoli_ordine(c: Commessa) -> List[Tuple[str, Tuple[Tuple[str, int], ...]]]:
+    """Articoli con capi, righe nell'ordine delle taglie (stesso ordine della stampa per capo)."""
+    out = []
+    for art in c.articoli:
+        righe = sorted(enumerate(art.righe), key=lambda p: chiave_taglia(p[1].taglia, p[0]))
+        righe = tuple((r.taglia, r.copie) for _, r in righe if r.copie > 0)
+        if righe:
+            out.append((art.descrizione, righe))
+    return out
+
+
+def fogli_ordine(c: Commessa) -> List[list]:
+    return impagina_ordine(articoli_ordine(c))
+
+
+def etichette_ordine(c: Commessa, imp: Impostazioni) -> List[EtichettaOrdine]:
+    """Copia per copia (= collo per collo), tutti i fogli del riepilogo."""
+    fogli = fogli_ordine(c)
+    n = c.copie_ordine
+    numera = c.numera_colli and n > 1
+    return [EtichettaOrdine(commessa=c.nome, articoli=tuple(f), capi=c.totale, foglio=k + 1, fogli=len(fogli),
+                            collo=i + 1 if numera else None, colli=n if numera else None,
+                            compensazione=imp.compensazione)
+            for i in range(n) for k, f in enumerate(fogli)]
+
+
+def tutte_le_etichette(c: Commessa, imp: Impostazioni) -> list:
+    """Sequenza completa di stampa per la commessa, nella modalità scelta."""
+    return etichette_ordine(c, imp) if c.tipo == "ordine" else etichette(c, imp)
 
 
 def etichette(c: Commessa, imp: Impostazioni, voci: List[VoceStampa] | None = None) -> List[Etichetta]:

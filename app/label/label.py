@@ -273,13 +273,9 @@ def normalizza_taglia(taglia):
     return up if up in SIZES else t
 
 
-def compose(ctx, e: Etichetta, boxes: Optional[dict] = None):
-    """Disegna l'etichetta. Se `boxes` è un dict, ci registra i riquadri degli elementi
-    (x0, y0, x1, y1) per i test di non sovrapposizione."""
-    box = (lambda k, *b: boxes.__setitem__(k, b)) if boxes is not None else (lambda *a: None)
-    rect(ctx, 0, 0, W, H, WHITE)
-
-    # ---- testata: wordmark originale + mirino di registro
+def _testata(ctx, box, contatore: Optional[str] = None):
+    """Wordmark originale + mirino di registro; contatore opzionale ("3/5") sulla linea del
+    wordmark, a sinistra del mirino."""
     wb = bbox_of(WORD + SUB)
     s_word = 300 / (wb[2] - wb[0])
     head_top = 40
@@ -291,16 +287,48 @@ def compose(ctx, e: Etichetta, boxes: Optional[dict] = None):
     reg_mark(ctx, X1 - 26, cap_mid, 15, 3)
     box("mirino", X1 - 26 - 25, cap_mid - 25, X1 - 26 + 25, cap_mid + 25)
 
-    # contatore opzionale "3/5": in testata, a sinistra del mirino, sulla linea del wordmark
-    if e.contatore and e.indice and e.totale:
-        cnt = f"{e.indice}/{e.totale}"
+    if contatore:
         c_cap = (28.42 - 22.0) * s_word * 0.62
         c_right = X1 - 26 - 25 - 14
         c_base = cap_mid + c_cap / 2
-        c_w = BIG_B.width(cnt, c_cap, 1.5)
+        c_w = BIG_B.width(contatore, c_cap, 1.5)
         ctx.set_source_rgb(*BLACK)
-        BIG_B.fill(ctx, cnt, c_right, c_base, c_cap, tracking=1.5, anchor="r")
+        BIG_B.fill(ctx, contatore, c_right, c_base, c_cap, tracking=1.5, anchor="r")
         box("contatore", c_right - c_w, c_base - c_cap, c_right, c_base)
+
+
+def _piede(ctx, box, fy):
+    """Filetto a quota `fy`, poi QR + contatti in fondo all'etichetta."""
+    rect(ctx, X0, fy, CW, 3)
+    n = len(QR); mod = 4
+    qs = n * mod
+    qy = H - M - qs
+    qx = X0
+    for r, row in enumerate(QR):
+        for c, v in enumerate(row):
+            if v: ctx.rectangle(qx + c * mod, qy + r * mod, mod, mod)
+    ctx.set_source_rgb(*BLACK); ctx.fill()
+
+    tx = qx + qs + 28
+    url_w = SANS_B.fill(ctx, "fortitudefabrics.it", tx, qy + 24, 24)
+    box("url", tx - 2, qy + 24 - 24 - 2, tx + url_w + 2, qy + 24 + SANS_B.descender(24) + 2)
+    SANS_R.fill(ctx, "hello@fortitudefabrics.it", tx, qy + qs - 30, 15)
+    SANS_R.fill(ctx, "Personalizzato a Piacenza, Italia", tx, qy + qs, 15)
+    box("piede", X0, fy, X1, H - M)
+
+
+def _box_fn(boxes: Optional[dict]):
+    return (lambda k, *b: boxes.__setitem__(k, b)) if boxes is not None else (lambda *a: None)
+
+
+def compose(ctx, e: Etichetta, boxes: Optional[dict] = None):
+    """Disegna l'etichetta. Se `boxes` è un dict, ci registra i riquadri degli elementi
+    (x0, y0, x1, y1) per i test di non sovrapposizione."""
+    box = _box_fn(boxes)
+    rect(ctx, 0, 0, W, H, WHITE)
+
+    # ---- testata
+    _testata(ctx, box, f"{e.indice}/{e.totale}" if e.contatore and e.indice and e.totale else None)
 
     # ---- pannello nero
     py0, py1 = 126, 590
@@ -410,23 +438,176 @@ def compose(ctx, e: Etichetta, boxes: Optional[dict] = None):
     box("etichette_riga", X0 - 2, row_y, X0 + LAB_W - 4, rule_y)
 
     # ---- piede: QR + contatti
-    fy = ord_y + lab_cap + 4 + 34
-    rect(ctx, X0, fy, CW, 3)
-    n = len(QR); mod = 4
-    qs = n * mod
-    qy = H - M - qs
-    qx = X0
-    for r, row in enumerate(QR):
-        for c, v in enumerate(row):
-            if v: ctx.rectangle(qx + c * mod, qy + r * mod, mod, mod)
-    ctx.set_source_rgb(*BLACK); ctx.fill()
+    _piede(ctx, box, ord_y + lab_cap + 4 + 34)
 
-    tx = qx + qs + 28
-    url_w = SANS_B.fill(ctx, "fortitudefabrics.it", tx, qy + 24, 24)
-    box("url", tx - 2, qy + 24 - 24 - 2, tx + url_w + 2, qy + 24 + SANS_B.descender(24) + 2)
-    SANS_R.fill(ctx, "hello@fortitudefabrics.it", tx, qy + qs - 30, 15)
-    SANS_R.fill(ctx, "Personalizzato a Piacenza, Italia", tx, qy + qs, 15)
-    box("piede", X0, fy, X1, H - M)
+
+# ---------------------------------------------------------------- etichetta riepilogo ordine
+# Stessa testata e stesso piede dell'etichetta busta; al posto del pannello con l'icona una
+# fascia nera con il nome commessa, poi un blocco per articolo: descrizione + caselle taglia
+# con il numero di capi (piene se ci sono capi). In fondo il totale dell'ordine.
+# Se gli articoli non stanno su un'etichetta si continua su altri "fogli" (1/2, 2/2…).
+@dataclass(frozen=True)
+class EtichettaOrdine:
+    commessa: str = ""
+    # ((descrizione, ((taglia, capi), …)), …): solo gli articoli di questo foglio,
+    # righe già nell'ordine delle taglie
+    articoli: tuple = ()
+    capi: int = 0                     # totale capi dell'intero ordine
+    foglio: int = 1
+    fogli: int = 1
+    collo: Optional[int] = None       # "COLLO 2/3" in testata
+    colli: Optional[int] = None
+    compensazione: float = COMPENSAZIONE_DEFAULT
+
+
+O_FASCIA = (126, 280)                 # fascia nera con il nome commessa
+O_CORPO_Y = O_FASCIA[1] + 26          # inizio blocchi articolo
+O_PIEDE_Y = 942                       # stesso filetto del piede dell'etichetta busta
+O_TOT_Y = O_PIEDE_Y - 24 - 56         # filetto del totale
+O_CHIP_H = 70
+O_CHIP_GAP = 8
+O_CHIP_PER_RIGA = 9
+O_DESC_H = 36                         # riga descrizione sopra le caselle
+O_BLOCCO_GAP = 24
+O_CAP_DESC = 20.0
+
+
+def _caselle_ordine(righe) -> list:
+    """Le 7 taglie standard sempre (come sull'etichetta busta), più le altre presenti.
+    Se così non stanno su una fila, solo le taglie con capi, nell'ordine delle righe."""
+    capi, ordine = {}, []
+    for t, n in righe:
+        t = normalizza_taglia(t) or ""
+        if t not in capi:
+            ordine.append(t)
+        capi[t] = capi.get(t, 0) + n
+    extra = [t for t in ordine if t not in SIZES]
+    if len(SIZES) + len(extra) <= O_CHIP_PER_RIGA:
+        return [(t, capi.get(t, 0)) for t in SIZES + extra]
+    return [(t, capi[t]) for t in ordine if capi[t] > 0]
+
+
+def altezza_blocco_ordine(righe) -> int:
+    n = len(_caselle_ordine(righe))
+    file = -(-n // O_CHIP_PER_RIGA)
+    return O_DESC_H + file * O_CHIP_H + (file - 1) * O_CHIP_GAP + O_BLOCCO_GAP
+
+
+def impagina_ordine(articoli) -> list:
+    """Divide gli articoli [(descrizione, righe), …] in fogli che stanno sull'etichetta."""
+    spazio = O_TOT_Y - 20 - O_CORPO_Y + O_BLOCCO_GAP
+    fogli, cur, usato = [], [], 0
+    for a in articoli:
+        h = altezza_blocco_ordine(a[1])
+        if cur and usato + h > spazio:
+            fogli.append(cur); cur, usato = [], 0
+        cur.append(a); usato += h
+    if cur:
+        fogli.append(cur)
+    return fogli
+
+
+def _capi_txt(n: int) -> str:
+    return f"{n} {'capo' if n == 1 else 'capi'}"
+
+
+def compose_ordine(ctx, e: EtichettaOrdine, boxes: Optional[dict] = None):
+    box = _box_fn(boxes)
+    rect(ctx, 0, 0, W, H, WHITE)
+    _testata(ctx, box, f"COLLO {e.collo}/{e.colli}" if e.collo and e.colli else None)
+
+    # ---- fascia nera: "Riepilogo ordine" + capi totali, sotto il nome commessa
+    py0, py1 = O_FASCIA
+    rect(ctx, X0, py0, CW, py1 - py0)
+    crop_marks(ctx, X0, py0, X1, py1, L=14, t=3, gap=7)
+    box("fascia", X0 - 21, py0 - 21, X1 + 21, py1 + 21)
+    pad = 24
+    k_cap, k_trk = 17, 3.0
+    k_base = py0 + pad + k_cap
+    ctx.set_source_rgb(*WHITE)
+    BIG_R.fill(ctx, "RIEPILOGO ORDINE", X0 + pad, k_base, k_cap, tracking=k_trk, grow=0.35)
+    BIG_R.fill(ctx, _capi_txt(e.capi).upper(), X1 - pad, k_base, k_cap, tracking=k_trk, anchor="r", grow=0.35)
+    nome = " ".join((e.commessa or "").split()) or "—"
+    n_trk = 1.5
+    n_max = CW - 2 * pad
+    n_cap = fit_cap(BIG_B, nome, 64.0, 30.0, n_max, n_trk)
+    if BIG_B.width(nome, n_cap, n_trk) > n_max:
+        while nome and BIG_B.width(nome.rstrip() + ELLIPSIS, n_cap, n_trk) > n_max:
+            nome = nome[:-1]
+        nome = nome.rstrip() + ELLIPSIS
+    n_base = py1 - pad - 4
+    w_nome = BIG_B.fill(ctx, nome, X0 + pad, n_base, n_cap, tracking=n_trk, grow=0.4)
+    box("nome", X0 + pad, n_base - n_cap, X0 + pad + w_nome, n_base)
+
+    # ---- un blocco per articolo
+    y = O_CORPO_Y
+    for i, (descr, righe) in enumerate(e.articoli):
+        caselle = _caselle_ordine(righe)
+        tot = sum(n for _, n in caselle)
+        destra = _capi_txt(tot)
+        base = y + O_CAP_DESC + 2
+        ctx.set_source_rgb(*BLACK)
+        w_dx = SANS_R.fill(ctx, destra, X1, base, 17, anchor="r")
+        max_w = CW - w_dx - 24
+        descr = " ".join((descr or "").split()) or f"Articolo {i + 1}"
+        cap = fit_cap(SANS_B, descr, O_CAP_DESC, ROW_CAP_MIN, max_w)
+        if SANS_B.width(descr, cap) > max_w:
+            descr = _truncate(SANS_B, descr, cap, max_w)
+        w_d = SANS_B.fill(ctx, descr, X0, base, cap)
+        box(f"art{i}_descr", X0, base - cap, X0 + w_d, base + SANS_B.descender(cap))
+
+        cy = y + O_DESC_H
+        per_riga = min(len(caselle), O_CHIP_PER_RIGA) if len(caselle) > len(SIZES) else len(SIZES)
+        chip_w = (CW - O_CHIP_GAP * (per_riga - 1)) / per_riga
+        for k, (t, n) in enumerate(caselle):
+            r, c = divmod(k, per_riga)
+            cx = round(X0 + c * (chip_w + O_CHIP_GAP))
+            cw = round(X0 + (c + 1) * (chip_w + O_CHIP_GAP) - O_CHIP_GAP) - cx
+            ry = cy + r * (O_CHIP_H + O_CHIP_GAP)
+            # casella: sigla della taglia sempre nera su bianco in alto (niente testo piccolo
+            # in negativo, che la stampa termica impasta); sotto, se ci sono capi, il numero
+            # in bianco su fondo pieno
+            rect(ctx, cx, ry, cw, O_CHIP_H)
+            rect(ctx, cx + 3, ry + 3, cw - 6, O_CHIP_H - 6, WHITE)
+            ctx.set_source_rgb(*BLACK)
+            t_cap = fit_cap(BIG_B, t, 16.0, 10.0, cw - 12, 1.0)
+            t_txt = t if BIG_B.width(t, t_cap, 1.0) <= cw - 12 else _truncate(BIG_B, t, t_cap, cw - 12)
+            BIG_B.fill(ctx, t_txt, cx + cw / 2, ry + 8 + t_cap, t_cap, tracking=1.0, anchor="c")
+            if n > 0:
+                fy0 = ry + 30
+                rect(ctx, cx, fy0, cw, O_CHIP_H - 30)
+                q = str(n)
+                q_cap = fit_cap(BIG_B, q, 26.0, 14.0, cw - 12, 1.5)
+                ctx.set_source_rgb(*WHITE)
+                BIG_B.fill(ctx, q, cx + cw / 2, fy0 + (O_CHIP_H - 30) / 2 + q_cap / 2, q_cap,
+                           tracking=1.5, anchor="c", grow=0.4)
+        file = -(-len(caselle) // per_riga)
+        fondo = cy + file * O_CHIP_H + (file - 1) * O_CHIP_GAP
+        box(f"art{i}_taglie", X0, cy, X1, fondo)
+        y = fondo + O_BLOCCO_GAP
+    box("corpo", X0 - 2, O_CORPO_Y, X1 + 2, max(y - O_BLOCCO_GAP, O_CORPO_Y))
+
+    # ---- totale ordine (ripetuto su ogni foglio) + numero foglio
+    rect(ctx, X0, O_TOT_Y, CW, 3)
+    t_base = O_TOT_Y + 3 + 20 + 30
+    ctx.set_source_rgb(*BLACK)
+    w_l = SANS_B.fill(ctx, "Totale ordine", X0, t_base, 17)
+    if e.fogli > 1:
+        seg = "  ·  segue" if e.foglio < e.fogli else ""
+        w_l += SANS_R.fill(ctx, f"  ·  foglio {e.foglio}/{e.fogli}{seg}", X0 + w_l, t_base, 17)
+    w_t = BIG_B.fill(ctx, _capi_txt(e.capi).upper(), X1, t_base, 30, tracking=1.5, anchor="r")
+    box("totale", X0 - 2, t_base - 30 - 2, X1 + 2, t_base + 4)
+    box("totale_sx", X0, t_base - 17, X0 + w_l, t_base)
+    box("totale_dx", X1 - w_t, t_base - 30, X1, t_base)
+
+    _piede(ctx, box, O_PIEDE_Y)
+
+
+def _disegna(ctx, e, boxes=None):
+    if isinstance(e, EtichettaOrdine):
+        compose_ordine(ctx, e, boxes)
+    else:
+        compose(ctx, e, boxes)
 
 
 # ---------------------------------------------------------------- output
@@ -439,14 +620,15 @@ def render_label(commessa="", descrizione="", taglia=None, indice=None, totale=N
     return render_etichetta(e, boxes)
 
 
-def render_etichetta(e: Etichetta, boxes=None) -> Image.Image:
+def render_etichetta(e, boxes=None) -> Image.Image:
+    """`e`: Etichetta (busta) oppure EtichettaOrdine (riepilogo)."""
     b = {} if boxes is None else boxes
     bw = _raster(e, 1, 128, b)
     if e.compensazione > 0:
         # nero solo dove la copertura supera 50% + compensazione
         soglia = round(255 * (0.5 - min(e.compensazione, 0.45)))
         fine = _raster(e, SUPER, soglia, {})
-        for k in ("taglie", "riga", "etichette_riga", "url", "contatore"):
+        for k in ("taglie", "riga", "etichette_riga", "url", "contatore", "corpo", "totale"):
             if k in b:
                 x0, y0, x1, y1 = b[k]
                 r = (max(0, math.floor(x0) - 1), max(0, math.floor(y0) - 1),
@@ -456,12 +638,12 @@ def render_etichetta(e: Etichetta, boxes=None) -> Image.Image:
     return bw
 
 
-def _raster(e: Etichetta, k: int, soglia: int, boxes: dict) -> Image.Image:
+def _raster(e, k: int, soglia: int, boxes: dict) -> Image.Image:
     """Disegna a k volte la risoluzione, media k x k campioni per dot, soglia a 1 bit."""
     surf = cairo.ImageSurface(cairo.FORMAT_RGB24, W * k, H * k)
     ctx = cairo.Context(surf); ctx.set_antialias(cairo.ANTIALIAS_NONE)
     ctx.scale(k, k)
-    compose(ctx, e, boxes)
+    _disegna(ctx, e, boxes)
     surf.flush()
     img = Image.frombuffer("RGBA", (W * k, H * k), bytes(surf.get_data()), "raw", "BGRA", 0, 1).convert("L")
     if k > 1:
@@ -473,8 +655,8 @@ def png_bytes(img: Image.Image) -> bytes:
     buf = io.BytesIO(); img.save(buf, "PNG", dpi=(DPI, DPI)); return buf.getvalue()
 
 
-def render_pdf(etichette: Iterable[Etichetta]) -> bytes:
-    """PDF vettoriale, una pagina 62x100 mm per etichetta, nell'ordine dato."""
+def render_pdf(etichette: Iterable) -> bytes:
+    """PDF vettoriale, una pagina 62x100 mm per etichetta (busta o riepilogo), nell'ordine dato."""
     buf = io.BytesIO()
     pw, ph = PAGE_W_MM / 25.4 * 72, PAGE_H_MM / 25.4 * 72
     surf = cairo.PDFSurface(buf, pw, ph)
@@ -484,7 +666,7 @@ def render_pdf(etichette: Iterable[Etichetta]) -> bytes:
         ctx = cairo.Context(surf)
         ctx.set_source_rgb(1, 1, 1); ctx.paint()
         ctx.translate(ox, oy); ctx.scale(72 / DPI, 72 / DPI)
-        compose(ctx, e)
+        _disegna(ctx, e)
         surf.show_page()
     surf.finish()
     return buf.getvalue()
