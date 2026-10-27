@@ -1,11 +1,12 @@
 """Modelli dati condivisi da API, stampa, storico e importer."""
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
 MAX_COPIE_RIGA = 9999
+MAX_COPIE_ORDINE = 99
 
 
 class RigaTaglia(BaseModel):
@@ -33,9 +34,15 @@ class Articolo(BaseModel):
 class Commessa(BaseModel):
     nome: str = Field(default="", max_length=200)
     articoli: List[Articolo] = Field(default_factory=list)
+    # "capo": un'etichetta per busta (le copie di una riga sono i capi = le etichette);
+    # "ordine": etichetta di riepilogo per scatola/busta dell'intero ordine (le copie sono i capi)
+    tipo: Literal["capo", "ordine"] = "capo"
+    copie_ordine: int = Field(default=1, ge=1, le=MAX_COPIE_ORDINE)   # solo "ordine": quante etichette riepilogo
+    numera_colli: bool = False                                         # solo "ordine": "COLLO 1/3" in testata
 
     @property
     def totale(self) -> int:
+        """Capi della commessa (in modalità "capo" coincide con le etichette)."""
         return sum(a.totale for a in self.articoli)
 
 

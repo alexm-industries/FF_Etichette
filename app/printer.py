@@ -190,11 +190,11 @@ JOBS: Dict[str, Job] = {}
 
 
 def _disegna(voci: List) -> List[Image.Image]:
-    from .label.label import Etichetta, render_etichetta
-    cache: Dict[Etichetta, Image.Image] = {}
+    from .label.label import Etichetta, EtichettaOrdine, render_etichetta
+    cache: Dict[object, Image.Image] = {}
     out = []
     for v in voci:
-        if isinstance(v, Etichetta):
+        if isinstance(v, (Etichetta, EtichettaOrdine)):
             if v not in cache:
                 cache[v] = render_etichetta(v)
             v = cache[v]
@@ -205,7 +205,7 @@ _lock_stampa = threading.Lock()      # un job alla volta verso la stampante
 
 def avvia_job(immagini: List, totale: int, da_indice: int, imp: Impostazioni,
               al_termine: Optional[Callable[[Job], None]] = None) -> Job:
-    """`immagini`: PIL.Image già pronte oppure `Etichetta` da disegnare nel thread del job
+    """`immagini`: PIL.Image già pronte oppure `Etichetta`/`EtichettaOrdine` da disegnare nel thread del job
     (le etichette uguali, es. 5 copie della stessa taglia, vengono disegnate una volta sola)."""
     job = Job(id=uuid.uuid4().hex[:12], totale=totale, da_indice=da_indice, inviate=da_indice - 1)
     JOBS[job.id] = job

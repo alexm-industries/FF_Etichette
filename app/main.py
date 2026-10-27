@@ -19,8 +19,8 @@ from pydantic import BaseModel
 
 from . import printer, storage
 from .importers import ImportNonDisponibile, trova_importer
-from .jobs import etichette, sequenza
-from .label.label import png_bytes, render_etichetta, render_label, render_pdf
+from .jobs import articoli_ordine, fogli_ordine, sequenza, tutte_le_etichette
+from .label.label import EtichettaOrdine, png_bytes, render_etichetta, render_label, render_pdf
 from .models import Commessa, Impostazioni
 
 PORTA = int(os.environ.get("FF_PORT", "8000"))
@@ -87,15 +87,58 @@ def anteprima(commessa: str = "", articolo: str = "", taglia: str = "",
     return Response(png, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
+@lru_cache(maxsize=64)
+def _anteprima_ordine(dati: str, foglio: int, compensazione: float) -> tuple:
+    c = Commessa.model_validate_json(dati)
+    fogli = fogli_ordine(c)
+    k = min(max(foglio, 1), max(len(fogli), 1))
+    e = EtichettaOrdine(commessa=c.nome, articoli=tuple(fogli[k - 1]) if fogli else (), capi=c.totale,
+                        foglio=k, fogli=max(len(fogli), 1),
+                        collo=1 if c.numera_colli and c.copie_ordine > 1 else None,
+                        colli=c.copie_ordine if c.numera_colli and c.copie_ordine > 1 else None,
+                        compensazione=compensazione)
+    return png_bytes(render_etichetta(e)), max(len(fogli), 1)
+
+
+@app.post("/api/anteprima-ordine.png")
+def anteprima_ordine(c: Commessa, foglio: int = Query(1, ge=1)):
+    """Anteprima dell'etichetta riepilogo (un foglio). Nelle intestazioni: fogli e etichette totali."""
+    imp = storage.leggi_impostazioni()
+    png, n = _anteprima_ordine(c.model_dump_json(), foglio, imp.compensazione)
+    return Response(png, media_type="image/png",
+                    headers={"Cache-Control": "no-store", "X-Fogli": str(n),
+                             "X-Etichette": str(n * c.copie_ordine if c.totale else 0)})
+
+
 @app.post("/api/riepilogo")
 def riepilogo(c: Commessa):
+    if c.tipo == "ordine":
+        return _riepilogo_ordine(c)
     voci = sequenza(c)
     return {
+        "tipo": "capo",
         "totale": len(voci),
         "richiede_conferma_extra": len(voci) > LIMITE_CONFERMA,
         "articoli": [{"descrizione": a.descrizione, "totale": a.totale} for a in c.articoli],
         # righe raggruppate nell'ordine di stampa: articolo / taglia / copie / da-a
         "righe": _raggruppa(voci),
+    }
+
+
+def _riepilogo_ordine(c: Commessa) -> dict:
+    arts = articoli_ordine(c)
+    fogli = len(fogli_ordine(c)) if arts else 0
+    n = fogli * c.copie_ordine
+    return {
+        "tipo": "ordine",
+        "totale": n,                      # etichette da stampare
+        "fogli": fogli,
+        "copie": c.copie_ordine,
+        "capi": c.totale,
+        "richiede_conferma_extra": n > LIMITE_CONFERMA,
+        "articoli": [{"descrizione": d, "totale": sum(q for _, q in r)} for d, r in arts],
+        "righe": [{"articolo": i, "descrizione": d, "taglia": t, "capi": q}
+                  for i, (d, r) in enumerate(arts) for t, q in r],
     }
 
 
@@ -112,14 +155,14 @@ def _raggruppa(voci):
 
 def _nome_file(c: Commessa) -> str:
     base = re.sub(r"[^A-Za-z0-9._-]+", "_", c.nome.strip()).strip("_") or "commessa"
-    return f"etichette_{base[:60]}.pdf"
+    return f"{'riepilogo' if c.tipo == 'ordine' else 'etichette'}_{base[:60]}.pdf"
 
 
 @app.post("/api/pdf")
 def pdf(c: Commessa):
     if c.totale == 0:
         raise HTTPException(400, "Nessuna etichetta da generare.")
-    data = render_pdf(etichette(c, storage.leggi_impostazioni()))
+    data = render_pdf(tutte_le_etichette(c, storage.leggi_impostazioni()))
     return Response(data, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{_nome_file(c)}"'})
 
@@ -130,18 +173,21 @@ class RichiestaStampa(BaseModel):
     da_indice: int = 1               # per riprendere un job interrotto
     conferma_extra: bool = False     # seconda conferma oltre LIMITE_CONFERMA
     storico_id: Optional[int] = None # ristampa (o ripresa) di una commessa già nello storico
+    # la commessa viene dal modulo dopo "Salva per dopo": se è ancora una bozza la si
+    # aggiorna con i dati attuali, se intanto è stata stampata se ne crea una nuova
+    aggiorna_bozza: bool = False
 
 
 @app.post("/api/stampa")
 def stampa(r: RichiestaStampa):
     imp = storage.leggi_impostazioni()
-    voci = sequenza(r.commessa)
-    tot = len(voci)
+    tutte = tutte_le_etichette(r.commessa, imp)       # solo dati: disegnate nel thread del job
+    tot = len(tutte)
     if tot == 0:
         raise HTTPException(400, "Nessuna etichetta da stampare.")
     if not 1 <= r.da_indice <= tot:
         raise HTTPException(400, f"L'etichetta di partenza deve essere tra 1 e {tot}.")
-    da_stampare = voci[r.da_indice - 1:]
+    da_stampare = tutte[r.da_indice - 1:]
     if len(da_stampare) > LIMITE_CONFERMA and not r.conferma_extra:
         raise HTTPException(409, f"{len(da_stampare)} etichette: serve la seconda conferma.")
     if not imp.ip_stampante:
@@ -150,9 +196,14 @@ def stampa(r: RichiestaStampa):
         raise HTTPException(409, "C'è già una stampa in corso.")
     if r.storico_id is not None and not storage.leggi_commessa(r.storico_id):
         raise HTTPException(404, "Commessa non trovata nello storico.")
-    immagini = etichette(r.commessa, imp, da_stampare)      # disegnate nel thread del job
-    cid = r.storico_id if r.storico_id is not None else storage.salva_commessa(r.commessa)
-    sid = storage.registra_stampa(cid, r.commessa, r.da_indice)
+    if r.storico_id is None:
+        cid = storage.salva_commessa(r.commessa)
+    elif r.aggiorna_bozza and not storage.aggiorna_bozza(r.storico_id, r.commessa):
+        cid = storage.salva_commessa(r.commessa)
+    else:
+        cid = r.storico_id
+    sid = storage.registra_stampa(cid, r.commessa, r.da_indice, tot)
+    immagini = da_stampare
     job = printer.avvia_job(immagini, tot, r.da_indice, imp,
                             al_termine=lambda j: storage.chiudi_stampa(sid, j.stato, j.inviate, j.errore))
     job.commessa_id = cid
@@ -266,8 +317,8 @@ def info():
 
 # ---------------------------------------------------------------- storico
 @app.get("/api/storico")
-def storico(q: str = Query("", max_length=200)):
-    return storage.elenco_commesse(q)
+def storico(q: str = Query("", max_length=200), stato: str = Query("", pattern="^(|bozze|stampate)$")):
+    return storage.elenco_commesse(q, stato=stato)
 
 
 @app.get("/api/storico/{cid}")
@@ -278,15 +329,51 @@ def storico_dettaglio(cid: int):
     return d
 
 
-# ---------------------------------------------------------------- fase 2: import (predisposto)
+def _da_salvare(c: Commessa) -> Commessa:
+    if c.totale == 0:
+        raise HTTPException(400, "Niente da salvare: aggiungi almeno un articolo con una taglia.")
+    return c
+
+
+@app.post("/api/storico")
+def salva_per_dopo(c: Commessa):
+    """Salva la commessa senza stamparla: compare nello storico tra quelle da stampare."""
+    return {"id": storage.salva_commessa(_da_salvare(c)), "nuova": True}
+
+
+@app.put("/api/storico/{cid}")
+def aggiorna_salvata(cid: int, c: Commessa):
+    """Aggiorna una commessa salvata per dopo; se intanto è stata stampata ne crea una nuova."""
+    _da_salvare(c)
+    if storage.aggiorna_bozza(cid, c):
+        return {"id": cid, "nuova": False}
+    return {"id": storage.salva_commessa(c), "nuova": True}
+
+
+@app.delete("/api/storico/{cid}")
+def elimina_salvata(cid: int):
+    if not storage.leggi_commessa(cid):
+        raise HTTPException(404, "Commessa non trovata.")
+    if not storage.elimina_bozza(cid):
+        raise HTTPException(409, "Una commessa già stampata non si può eliminare.")
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------- import file d'ordine
+MAX_FILE_IMPORT = 5 * 1024 * 1024
+
+
 @app.post("/api/import")
 async def importa(file: UploadFile = File(...)):
-    contenuto = await file.read()
+    contenuto = await file.read(MAX_FILE_IMPORT + 1)
+    if len(contenuto) > MAX_FILE_IMPORT:
+        raise HTTPException(413, "File troppo grande (massimo 5 MB).")
+    nome = file.filename or ""
     try:
-        imp = trova_importer(file.filename or "", contenuto)
+        imp = trova_importer(nome, contenuto)
+        return imp.importa(contenuto, nome_file=nome).model_dump()
     except ImportNonDisponibile as e:
-        raise HTTPException(501, str(e))
-    return imp.importa(contenuto).model_dump()
+        raise HTTPException(422, str(e))
 
 
 app.mount("/fonts", StaticFiles(directory=os.path.join(os.path.dirname(STATIC), "label", "assets", "fonts")),

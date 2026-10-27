@@ -85,6 +85,36 @@ input:focus, select:focus, button:focus-visible { outline: 3px solid var(--magen
 }
 .row-actions { display: flex; justify-content: space-between; margin-top: 8px; }
 
+/* ---------- tipo di etichetta, opzioni ordine, salva per dopo ---------- */
+.segmented { display: grid; grid-template-columns: 1fr 1fr; border: 3px solid var(--ink); margin-bottom: 16px; }
+.segmented button {
+  min-height: 64px; border: 0; background: var(--paper); color: var(--ink); cursor: pointer; padding: 8px 10px;
+  font: 700 22px/1 "Big Shoulders", sans-serif; text-transform: uppercase; letter-spacing: .04em;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; touch-action: manipulation;
+}
+.segmented button + button { border-left: 3px solid var(--ink); }
+.segmented button small { font: 400 13px/1.2 "Instrument Sans", sans-serif; text-transform: none; letter-spacing: 0; color: var(--muted); }
+.segmented button.is-on { background: var(--ink); color: var(--paper); }
+.segmented button.is-on small { color: #ddd; }
+.ordine-copie { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ordine-copie .muted { display: block; }
+.ordine-copie .stepper { flex: none; }
+#ordine-opzioni .muted:last-child { margin: 6px 0 0; }
+.salva-dopo { margin-top: 16px; }
+.bozza-info { border: 3px solid var(--ink); border-left-width: 10px; padding: 10px 12px; margin: 0 0 16px; font-size: 15px; }
+.bozza-info.is-mod { border-color: var(--magenta); }
+.pager { display: inline-flex; margin: -8px -8px -8px 0; }
+.pager .icon-btn { width: 40px; height: 40px; font-size: 32px; }
+.pager .icon-btn:disabled { opacity: .25; cursor: default; }
+.filtri { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.filtri button {
+  min-height: 44px; padding: 0 14px; border: 3px solid var(--ink); background: var(--paper); color: var(--ink);
+  font: 700 15px/1 "Instrument Sans", sans-serif; cursor: pointer;
+}
+.filtri button.is-on { background: var(--ink); color: var(--paper); }
+.si-tag { background: var(--ink); color: #fff; font-weight: 700; font-size: 13px; padding: 1px 6px; margin-left: 6px; }
+.si-tag.da-stampare { background: var(--magenta); }
+
 /* ---------- card articolo ---------- */
 .card { border: 3px solid var(--line); padding: 14px; margin-bottom: 16px; background: var(--paper); }
 .articolo-head { display: flex; align-items: center; gap: 10px; margin: -4px 0 8px; }

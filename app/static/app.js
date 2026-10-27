@@ -10,9 +10,13 @@ let stato = caricaBozza() || nuovaCommessa();
 let sel = { a: 0, r: 0 };           // riga selezionata per l'anteprima
 let impostazioni = {};
 
-function nuovaCommessa() {
-  return { nome: "", articoli: [{ descrizione: "", righe: [{ taglia: "M", copie: 1 }] }] };
+// tipo "capo": un'etichetta per busta; "ordine": etichetta riepilogo dell'intero ordine.
+// _storicoId / _salvata: la commessa è stata salvata per dopo (id nello storico, dati salvati)
+function nuovaCommessa(tipo = "capo") {
+  return { nome: "", tipo, copie_ordine: 1, numera_colli: false,
+           articoli: [{ descrizione: "", righe: [{ taglia: "M", copie: 1 }] }] };
 }
+const eOrdine = () => stato.tipo === "ordine";
 
 // ------------------------------------------------------------------ API
 async function api(path, opts = {}) {
@@ -38,6 +42,9 @@ async function api(path, opts = {}) {
 function commessaPulita() {
   return {
     nome: stato.nome.trim(),
+    tipo: stato.tipo,
+    copie_ordine: stato.copie_ordine,
+    numera_colli: stato.numera_colli,
     articoli: stato.articoli.map(a => ({
       descrizione: a.descrizione.trim(),
       righe: a.righe.filter(r => r.taglia.trim() && r.copie > 0)
@@ -53,7 +60,7 @@ function salvaBozza() {
 function caricaBozza() {
   try {
     const s = JSON.parse(localStorage.getItem(BOZZA_KEY));
-    if (s && Array.isArray(s.articoli)) return s;
+    if (s && Array.isArray(s.articoli)) return { ...nuovaCommessa(), ...s };
   } catch (_) {}
   return null;
 }
@@ -61,6 +68,7 @@ function caricaBozza() {
 // ------------------------------------------------------------------ rendering form
 function render() {
   $("#commessa").value = stato.nome;
+  renderTipo();
   const box = $("#articoli");
   box.textContent = "";
   stato.articoli.forEach((art, ai) => {
@@ -90,6 +98,35 @@ function render() {
   });
   aggiornaTotali();
   evidenzia();
+  aggiornaBozzaInfo();
+}
+
+function renderTipo() {
+  $$(".segmented button").forEach(b => {
+    const on = b.dataset.tipo === stato.tipo;
+    b.classList.toggle("is-on", on); b.setAttribute("aria-checked", on);
+  });
+  $("#ordine-opzioni").hidden = !eOrdine();
+  $("#copie-ordine").value = stato.copie_ordine;
+  $("#numera-colli").checked = !!stato.numera_colli;
+}
+
+function setTipo(t) {
+  if (t === stato.tipo) return;
+  stato.tipo = t; foglio = 1;
+  ultimaAnteprima = ""; ultimaOrdine = "";
+  render(); cambiato();
+}
+
+function aggiornaBozzaInfo() {
+  const el = $("#bozza-info");
+  if (!stato._storicoId) { el.hidden = true; return; }
+  const mod = JSON.stringify(commessaPulita()) !== stato._salvata;
+  el.hidden = false;
+  el.classList.toggle("is-mod", mod);
+  el.textContent = mod
+    ? "Commessa salvata per dopo: ci sono modifiche non ancora salvate."
+    : "Commessa salvata per dopo: la trovi in Storico › Da stampare.";
 }
 
 function confirmaRimozione(art) {
@@ -157,14 +194,19 @@ function totale() {
 }
 
 function aggiornaTotali() {
+  const ordine = eOrdine();
   stato.articoli.forEach((a, ai) => {
     const card = $(`.articolo[data-a="${ai}"]`);
     if (!card) return;
     const n = a.righe.reduce((t, r) => t + (r.taglia.trim() ? r.copie : 0), 0);
-    $(".articolo-tot", card).textContent = `${n} ${n === 1 ? "etichetta" : "etichette"}`;
+    $(".articolo-tot", card).textContent = ordine ? `${n} ${n === 1 ? "capo" : "capi"}`
+                                                  : `${n} ${n === 1 ? "etichetta" : "etichette"}`;
   });
-  const n = totale();
+  const capi = totale();
+  // in modalità ordine: copie x fogli del riepilogo (i fogli arrivano dall'anteprima)
+  const n = ordine ? (capi ? stato.copie_ordine * fogliOrdine : 0) : capi;
   $("#tot").textContent = n;
+  $(".actionbar-total span").textContent = ordine ? `etichette · ${capi} capi` : "etichette";
   const b = $("#stampa");
   b.textContent = `Stampa ${n} ${n === 1 ? "etichetta" : "etichette"}`;
   b.disabled = n === 0;
@@ -174,6 +216,7 @@ function aggiornaTotali() {
 let tCambio;
 function cambiato() {
   aggiornaTotali();
+  aggiornaBozzaInfo();
   salvaBozza();
   clearTimeout(tCambio);
   tCambio = setTimeout(anteprima, 250);
@@ -182,6 +225,8 @@ function cambiato() {
 // ------------------------------------------------------------------ anteprima
 let ultimaAnteprima = "";
 function anteprima() {
+  if (eOrdine()) return anteprimaOrdine();
+  $("#pager").hidden = true;
   const art = stato.articoli[sel.a] || stato.articoli[0];
   const riga = art?.righe[sel.r] || art?.righe[0];
   const p = new URLSearchParams({
@@ -198,6 +243,32 @@ function anteprima() {
   ultimaAnteprima = url;
   $("#preview").src = url;
   $("#preview-label").textContent = riga ? `${riga.taglia || "—"} · ${art.descrizione || "senza descrizione"}` : "";
+}
+
+// anteprima dell'etichetta riepilogo: serve l'intera commessa, quindi POST
+let foglio = 1, fogliOrdine = 1, ultimaOrdine = "", urlOrdine = null;
+async function anteprimaOrdine() {
+  const c = commessaPulita();
+  const key = JSON.stringify(c) + "|" + foglio;
+  if (key === ultimaOrdine) return;
+  ultimaOrdine = key;
+  let res, blob;
+  try {
+    res = await api("/api/anteprima-ordine.png?foglio=" + foglio, { json: c });
+    blob = await res.blob();
+  } catch (_) { ultimaOrdine = ""; return; }
+  if (key !== ultimaOrdine) return;                 // nel frattempo è cambiato qualcosa
+  fogliOrdine = parseInt(res.headers.get("X-Fogli"), 10) || 1;
+  foglio = Math.min(foglio, fogliOrdine);
+  if (urlOrdine) URL.revokeObjectURL(urlOrdine);
+  urlOrdine = URL.createObjectURL(blob);
+  $("#preview").src = urlOrdine;
+  const capi = totale();
+  $("#preview-label").textContent = fogliOrdine > 1 ? `Foglio ${foglio} di ${fogliOrdine}` : `${capi} ${capi === 1 ? "capo" : "capi"}`;
+  $("#pager").hidden = fogliOrdine <= 1;
+  $("#foglio-prec").disabled = foglio <= 1;
+  $("#foglio-succ").disabled = foglio >= fogliOrdine;
+  aggiornaTotali();
 }
 
 // stesso ordine di app/jobs.py: bimbo < XS…3XL < 4XL, 5XL… < altre
@@ -249,8 +320,15 @@ async function apriConferma() {
   try { r = await (await api("/api/riepilogo", { json: c })).json(); }
   catch (e) { return toast(e.message, true); }
   $("#sheet-title").textContent = "Conferma stampa";
-  $("#sheet-sub").textContent = `${c.nome || "Commessa senza nome"} · ${r.totale} etichette, in quest'ordine:`;
-  $("#sheet-body").innerHTML = tabellaRiepilogo(r);
+  if (r.tipo === "ordine") {
+    const fogli = r.fogli > 1 ? ` × ${r.fogli} fogli` : "";
+    $("#sheet-sub").textContent = `${c.nome || "Commessa senza nome"} · ${r.totale} ${r.totale === 1 ? "etichetta" : "etichette"} riepilogo ` +
+      `(${r.copie} ${r.copie === 1 ? "copia" : "copie"}${fogli}) per ${r.capi} capi:`;
+    $("#sheet-body").innerHTML = tabellaOrdine(r);
+  } else {
+    $("#sheet-sub").textContent = `${c.nome || "Commessa senza nome"} · ${r.totale} etichette, in quest'ordine:`;
+    $("#sheet-body").innerHTML = tabellaRiepilogo(r);
+  }
   const warn = $("#sheet-warn");
   warn.hidden = !r.richiede_conferma_extra;
   warn.textContent = r.richiede_conferma_extra
@@ -265,7 +343,7 @@ function azioniConferma(c, r, secondaConferma) {
   const ok = bottone(secondaConferma ? `Sì, stampa ${r.totale} etichette` : "Conferma e stampa", "btn btn-primary btn-wide");
   ok.addEventListener("click", () => {
     if (r.richiede_conferma_extra && !secondaConferma) return azioniConferma(c, r, true);
-    avviaStampa(c, 1, r.richiede_conferma_extra, stato._storicoId ?? null);
+    avviaStampa(c, 1, r.richiede_conferma_extra, stato._storicoId ?? null, !!stato._storicoId);
   });
   box.append(ok, bottoneChiudi("Annulla"));
   if (secondaConferma) $("#sheet-warn").textContent = `Seconda conferma: stai per stampare ${r.totale} etichette.`;
@@ -285,15 +363,76 @@ function tabellaRiepilogo(r) {
   return h + "</tbody></table>";
 }
 
+function tabellaOrdine(r) {
+  let h = "<table><thead><tr><th>Taglia</th><th class='n'>Capi</th></tr></thead><tbody>";
+  let art = -1;
+  for (const g of r.righe) {
+    if (g.articolo !== art) {
+      art = g.articolo;
+      h += `<tr class="art"><td>${esc(g.descrizione || `Articolo ${art + 1}`)}</td><td class="n">${r.articoli[art].totale}</td></tr>`;
+    }
+    h += `<tr><td class="sz">${esc(g.taglia)}</td><td class="n">${g.capi}</td></tr>`;
+  }
+  return h + "</tbody></table>";
+}
+
 let pollTimer;
-async function avviaStampa(c, daIndice, confermaExtra, storicoId = null) {
+// aggiorna: la commessa nel modulo è stata salvata per dopo (storicoId): la stampa la aggiorna
+async function avviaStampa(c, daIndice, confermaExtra, storicoId = null, aggiorna = false) {
   let job;
   try {
-    job = await (await api("/api/stampa", { json: { commessa: c, da_indice: daIndice, conferma_extra: !!confermaExtra, storico_id: storicoId } })).json();
+    job = await (await api("/api/stampa", { json: { commessa: c, da_indice: daIndice, conferma_extra: !!confermaExtra,
+                                                    storico_id: storicoId, aggiorna_bozza: aggiorna } })).json();
   } catch (e) {
     return mostraErroreStampa(e.message, c);
   }
+  if (aggiorna) {                 // stampata: non è più "da stampare", il modulo se ne stacca
+    delete stato._storicoId; delete stato._salvata;
+    salvaBozza(); aggiornaBozzaInfo();
+  }
+  if (window.FFStorico) window.FFStorico.invalida();
   mostraAvanzamento(job, c);
+}
+
+// ------------------------------------------------------------------ salva per dopo
+async function salvaPerDopo() {
+  const c = commessaPulita();
+  if (!c.articoli.length) return toast("Niente da salvare: aggiungi almeno una taglia.", true);
+  const id = stato._storicoId;
+  let r;
+  try {
+    r = await (await api(id ? `/api/storico/${id}` : "/api/storico", { method: id ? "PUT" : "POST", json: c })).json();
+  } catch (e) { return toast(e.message, true); }
+  stato._storicoId = r.id; stato._salvata = JSON.stringify(c);
+  salvaBozza(); aggiornaBozzaInfo();
+  if (window.FFStorico) window.FFStorico.invalida();
+  toast(id && r.nuova ? "Era già stata stampata: salvata come nuova commessa da stampare"
+                      : "Salvata per dopo: la trovi in Storico › Da stampare");
+}
+
+// ------------------------------------------------------------------ import da file
+async function importaFile(file) {
+  if (!file) return;
+  if (totale() && !confirm("Sostituire la commessa nel modulo con quella del file?")) return;
+  const fd = new FormData(); fd.append("file", file);
+  let d;
+  try { d = await (await api("/api/import", { method: "POST", body: fd })).json(); }
+  catch (e) { return toast(e.message, true); }
+  const c = d.commessa;
+  stato = { ...nuovaCommessa(stato.tipo), nome: c.nome, articoli: c.articoli,
+            copie_ordine: stato.copie_ordine, numera_colli: stato.numera_colli };
+  sel = { a: 0, r: 0 }; foglio = 1;
+  render(); cambiato();
+  const capi = totale();
+  const msg = `Importati ${c.articoli.length} ${c.articoli.length === 1 ? "articolo" : "articoli"} e ${capi} capi da ${file.name}. Controlla prima di stampare.`;
+  if (!d.avvisi.length) return toast(msg);
+  $("#sheet-title").textContent = "File importato";
+  $("#sheet-sub").textContent = msg;
+  $("#sheet-warn").hidden = true;
+  $("#sheet-body").innerHTML = `<h3>Da controllare</h3><ul class="stampe">${d.avvisi.map(a => `<li>${esc(a)}</li>`).join("")}</ul>`;
+  const box = $("#sheet-actions"); box.textContent = "";
+  box.append(bottoneChiudi("Ho capito", "btn btn-primary btn-wide"));
+  apriSheet();
 }
 
 function mostraAvanzamento(job, c) {
@@ -464,8 +603,15 @@ function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<"
 
 // API per altri moduli (storico)
 window.FF = {
-  carica(c) { stato = c; sel = { a: 0, r: 0 }; render(); cambiato(); vista("nuova"); },
-  api, toast, esc, apriSheet, chiudiSheet, tabellaRiepilogo, avviaStampa,
+  // storicoId: commessa salvata per dopo, aperta per modificarla o stamparla
+  carica(c, storicoId = null) {
+    stato = { ...nuovaCommessa(), ...c };
+    delete stato._storicoId; delete stato._salvata;
+    if (storicoId) { stato._storicoId = storicoId; stato._salvata = JSON.stringify(commessaPulita()); }
+    sel = { a: 0, r: 0 }; foglio = 1; ultimaOrdine = ""; ultimaAnteprima = "";
+    render(); cambiato(); vista("nuova");
+  },
+  api, toast, esc, apriSheet, chiudiSheet, tabellaRiepilogo, tabellaOrdine, avviaStampa, apriConferma,
 };
 
 // ------------------------------------------------------------------ avvio
@@ -478,9 +624,27 @@ document.addEventListener("DOMContentLoaded", async () => {
     $$(".articolo .descrizione").pop()?.focus();
   });
   $("#svuota").addEventListener("click", () => {
-    if (totale() && !confirm("Svuotare la commessa in corso?")) return;
-    stato = nuovaCommessa(); sel = { a: 0, r: 0 }; render(); cambiato();
+    const msg = stato._storicoId ? "Svuotare il modulo? La commessa salvata per dopo resta nello storico."
+                                 : "Svuotare la commessa in corso?";
+    if (totale() && !confirm(msg)) return;
+    stato = nuovaCommessa(stato.tipo); sel = { a: 0, r: 0 }; foglio = 1; render(); cambiato();
   });
+  $$(".segmented button").forEach(b => b.addEventListener("click", () => setTipo(b.dataset.tipo)));
+  const setCopie = v => {
+    stato.copie_ordine = Math.max(1, Math.min(99, Number.isFinite(v) ? Math.round(v) : 1));
+    $("#copie-ordine").value = stato.copie_ordine; cambiato();
+  };
+  $("#copie-meno").addEventListener("click", () => setCopie(stato.copie_ordine - 1));
+  $("#copie-piu").addEventListener("click", () => setCopie(stato.copie_ordine + 1));
+  $("#copie-ordine").addEventListener("input", e => { if (e.target.value !== "") setCopie(parseInt(e.target.value, 10)); });
+  $("#copie-ordine").addEventListener("blur", e => setCopie(parseInt(e.target.value, 10)));
+  $("#copie-ordine").addEventListener("focus", e => e.target.select());
+  $("#numera-colli").addEventListener("change", e => { stato.numera_colli = e.target.checked; cambiato(); });
+  $("#foglio-prec").addEventListener("click", () => { foglio = Math.max(1, foglio - 1); anteprimaOrdine(); });
+  $("#foglio-succ").addEventListener("click", () => { foglio = Math.min(fogliOrdine, foglio + 1); anteprimaOrdine(); });
+  $("#salva-dopo").addEventListener("click", salvaPerDopo);
+  $("#importa").addEventListener("click", () => $("#file-import").click());
+  $("#file-import").addEventListener("change", async e => { await importaFile(e.target.files[0]); e.target.value = ""; });
   $("#pdf").addEventListener("click", scaricaPdf);
   $("#stampa").addEventListener("click", apriConferma);
   $("#form-imp").addEventListener("submit", salvaImpostazioni);

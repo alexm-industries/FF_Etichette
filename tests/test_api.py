@@ -94,6 +94,6 @@ def test_info_qr(client):
     assert d["url"].startswith("http://") and "<svg" in d["qr_svg"]
 
 
-def test_import_non_ancora_disponibile(client):
+def test_import_colonne_non_riconosciute(client):
     r = client.post("/api/import", files={"file": ("ordine.csv", b"a,b\n1,2\n", "text/csv")})
-    assert r.status_code == 501
+    assert r.status_code == 422 and "Colonne trovate: a, b" in r.json()["detail"]

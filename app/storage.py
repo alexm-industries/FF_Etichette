@@ -1,4 +1,7 @@
-"""Persistenza SQLite: impostazioni e storico delle commesse stampate."""
+"""Persistenza SQLite: impostazioni e storico delle commesse (stampate o salvate per dopo).
+
+Una commessa senza stampe è una bozza "da stampare": si può ancora modificare o eliminare.
+Dopo la prima stampa resta fissa (si ristampa o si duplica)."""
 from __future__ import annotations
 
 import json
@@ -94,12 +97,45 @@ def salva_commessa(c: Commessa) -> int:
         return cur.lastrowid
 
 
-def registra_stampa(commessa_id: int, stampata: Commessa, da_indice: int) -> int:
+def _ha_stampe(con, cid: int) -> bool:
+    return con.execute("SELECT 1 FROM stampe WHERE commessa_id = ? LIMIT 1", (cid,)).fetchone() is not None
+
+
+def aggiorna_bozza(cid: int, c: Commessa) -> bool:
+    """Sovrascrive una commessa salvata per dopo. False se non esiste o è già stata stampata."""
+    init_db()
+    with connessione() as con:
+        if not con.execute("SELECT 1 FROM commesse WHERE id = ?", (cid,)).fetchone() or _ha_stampe(con, cid):
+            return False
+        con.execute("UPDATE commesse SET creata = ?, nome = ?, dati = ?, totale = ?, testo = ? WHERE id = ?",
+                    (_ora(), c.nome, c.model_dump_json(), c.totale, _testo(c), cid))
+        return True
+
+
+def elimina_bozza(cid: int) -> bool:
+    """Elimina una commessa salvata per dopo. False se non esiste o è già stata stampata."""
+    init_db()
+    with connessione() as con:
+        if _ha_stampe(con, cid):
+            return False
+        return con.execute("DELETE FROM commesse WHERE id = ?", (cid,)).rowcount > 0
+
+
+def e_bozza(cid: int) -> bool:
+    init_db()
+    with connessione() as con:
+        return (con.execute("SELECT 1 FROM commesse WHERE id = ?", (cid,)).fetchone() is not None
+                and not _ha_stampe(con, cid))
+
+
+def registra_stampa(commessa_id: int, stampata: Commessa, da_indice: int, totale: Optional[int] = None) -> int:
+    """`totale`: etichette dell'intero job (default: i capi, che in modalità "capo" coincidono)."""
     init_db()
     with connessione() as con:
         cur = con.execute("INSERT INTO stampe (commessa_id, data, dati, totale, da_indice, stato) "
                           "VALUES (?, ?, ?, ?, ?, 'in_corso')",
-                          (commessa_id, _ora(), stampata.model_dump_json(), stampata.totale, da_indice))
+                          (commessa_id, _ora(), stampata.model_dump_json(),
+                           stampata.totale if totale is None else totale, da_indice))
         return cur.lastrowid
 
 
@@ -109,7 +145,8 @@ def chiudi_stampa(stampa_id: int, stato: str, inviate: int, errore: Optional[str
                     (stato, inviate, errore, stampa_id))
 
 
-def elenco_commesse(q: str = "", limite: int = 100) -> List[dict]:
+def elenco_commesse(q: str = "", limite: int = 100, stato: str = "") -> List[dict]:
+    """`stato`: "" tutte, "bozze" solo quelle salvate per dopo, "stampate" solo quelle stampate."""
     init_db()
     sql = ("SELECT c.id, c.creata, c.nome, c.totale, c.dati, "
            "(SELECT MAX(s.data) FROM stampe s WHERE s.commessa_id = c.id) AS ultima, "
@@ -117,10 +154,15 @@ def elenco_commesse(q: str = "", limite: int = 100) -> List[dict]:
            "(SELECT s.stato FROM stampe s WHERE s.commessa_id = c.id ORDER BY s.id DESC LIMIT 1) AS esito "
            "FROM commesse c")
     args: list = []
+    cond = []
     parole = [p for p in q.lower().split() if p]
     if parole:
-        sql += " WHERE " + " AND ".join("c.testo LIKE ? ESCAPE '\\'" for _ in parole)
+        cond += ["c.testo LIKE ? ESCAPE '\\'" for _ in parole]
         args += ["%" + p.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%" for p in parole]
+    if stato in ("bozze", "stampate"):
+        cond.append(("NOT " if stato == "bozze" else "") + "EXISTS (SELECT 1 FROM stampe s WHERE s.commessa_id = c.id)")
+    if cond:
+        sql += " WHERE " + " AND ".join(cond)
     sql += " ORDER BY COALESCE(ultima, c.creata) DESC, c.id DESC LIMIT ?"
     args.append(limite)
     with connessione() as con:
@@ -130,6 +172,7 @@ def elenco_commesse(q: str = "", limite: int = 100) -> List[dict]:
         c = Commessa.model_validate_json(r["dati"])
         out.append({"id": r["id"], "nome": r["nome"], "creata": r["creata"], "ultima_stampa": r["ultima"],
                     "totale": r["totale"], "n_stampe": r["n_stampe"], "esito": r["esito"],
+                    "bozza": r["n_stampe"] == 0, "tipo": c.tipo,
                     "articoli": [a.descrizione for a in c.articoli]})
     return out
 
@@ -141,7 +184,7 @@ def leggi_commessa(cid: int) -> Optional[dict]:
         if not r:
             return None
         st = con.execute("SELECT * FROM stampe WHERE commessa_id = ? ORDER BY id DESC", (cid,)).fetchall()
-    return {"id": r["id"], "creata": r["creata"], "commessa": json.loads(r["dati"]),
+    return {"id": r["id"], "creata": r["creata"], "commessa": json.loads(r["dati"]), "bozza": not st,
             "stampe": [{"id": s["id"], "data": s["data"], "totale": s["totale"], "da_indice": s["da_indice"],
                         "inviate": s["inviate"], "stato": s["stato"], "errore": s["errore"],
                         "commessa": json.loads(s["dati"])} for s in st]}
