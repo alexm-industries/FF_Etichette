@@ -210,3 +210,19 @@ input:focus, select:focus, button:focus-visible { outline: 3px solid var(--magen
   .actionbar #pdf { font-size: 15px; padding: 0 8px; }
   .actionbar #stampa { font-size: 15px; padding: 0 10px; }
 }
+
+/* ---------- storico ---------- */
+.storico-item {
+  display: block; width: 100%; text-align: left; cursor: pointer; font: inherit; color: inherit;
+  background: var(--paper); border: 3px solid var(--ink); padding: 12px 14px; margin-bottom: 10px;
+}
+.storico-item:hover { background: var(--soft); }
+.si-top { display: flex; gap: 10px; align-items: baseline; font-size: 19px; }
+.si-n { margin-left: auto; font-family: "Big Shoulders"; font-weight: 700; font-size: 24px; }
+.si-art { display: block; color: var(--muted); font-size: 15px; margin: 2px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.si-meta { display: block; font-size: 14px; }
+.si-warn { background: var(--err); color: #fff; font-weight: 700; padding: 1px 6px; margin-left: 6px; }
+.sheet-body input[type=checkbox] { width: 26px; height: 26px; accent-color: var(--ink); }
+.sheet-body h3 { margin-top: 16px; }
+.stampe { padding-left: 18px; font-size: 15px; }
+.stampe li { margin-bottom: 6px; }

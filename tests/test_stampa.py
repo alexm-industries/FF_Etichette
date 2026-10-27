@@ -38,7 +38,7 @@ class FintaStampante:
                 c, _ = self.srv.accept()
             except OSError:
                 return
-            buf = b""
+            buf = bytearray()
             c.settimeout(3)
             try:
                 while True:
@@ -53,7 +53,7 @@ class FintaStampante:
             except OSError:
                 pass
             c.close()
-            self.ricevuti.append(buf)
+            self.ricevuti.append(bytes(buf))
 
     def close(self):
         self.srv.close()

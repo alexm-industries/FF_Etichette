@@ -265,7 +265,7 @@ function azioniConferma(c, r, secondaConferma) {
   const ok = bottone(secondaConferma ? `Sì, stampa ${r.totale} etichette` : "Conferma e stampa", "btn btn-primary btn-wide");
   ok.addEventListener("click", () => {
     if (r.richiede_conferma_extra && !secondaConferma) return azioniConferma(c, r, true);
-    avviaStampa(c, 1, r.richiede_conferma_extra);
+    avviaStampa(c, 1, r.richiede_conferma_extra, stato._storicoId ?? null);
   });
   box.append(ok, bottoneChiudi("Annulla"));
   if (secondaConferma) $("#sheet-warn").textContent = `Seconda conferma: stai per stampare ${r.totale} etichette.`;
@@ -286,12 +286,11 @@ function tabellaRiepilogo(r) {
 }
 
 let pollTimer;
-async function avviaStampa(c, daIndice, confermaExtra) {
+async function avviaStampa(c, daIndice, confermaExtra, storicoId = null) {
   let job;
   try {
-    job = await (await api("/api/stampa", { json: { commessa: c, da_indice: daIndice, conferma_extra: !!confermaExtra } })).json();
+    job = await (await api("/api/stampa", { json: { commessa: c, da_indice: daIndice, conferma_extra: !!confermaExtra, storico_id: storicoId } })).json();
   } catch (e) {
-    if (e.status === 404 || e.status === 405) return mostraErroreStampa("La stampa di rete non è ancora attiva in questa versione. Usa \"Scarica PDF\".", c);
     return mostraErroreStampa(e.message, c);
   }
   mostraAvanzamento(job, c);
@@ -299,6 +298,7 @@ async function avviaStampa(c, daIndice, confermaExtra) {
 
 function mostraAvanzamento(job, c) {
   $("#sheet-title").textContent = "Stampa in corso";
+  $("#sheet-sub").textContent = `${c.nome || "Commessa senza nome"} · ${job.totale} etichette`;
   $("#sheet-warn").hidden = true;
   $("#sheet-body").innerHTML = `<div class="progress"><div id="prog"></div></div><p id="prog-txt"></p>`;
   const box = $("#sheet-actions"); box.textContent = "";
@@ -312,22 +312,24 @@ function mostraAvanzamento(job, c) {
     catch (e) { clearInterval(pollTimer); return mostraErroreStampa(e.message, c); }
     const pct = s.totale ? Math.round(100 * s.inviate / s.totale) : 0;
     $("#prog").style.width = pct + "%";
-    $("#prog-txt").textContent = `Etichetta ${s.inviate} di ${s.totale}`;
+    $("#prog-txt").textContent = s.preparazione && s.stato === "in_corso"
+      ? "Preparo le etichette…" : `Etichetta ${s.inviate} di ${s.totale}`;
     if (s.stato === "completato") {
       clearInterval(pollTimer);
+      if (window.FFStorico) window.FFStorico.invalida();
       $("#sheet-title").textContent = "Stampa completata";
       $("#sheet-sub").textContent = `${s.totale} etichette inviate alla stampante.`;
       box.textContent = "";
       box.append(bottoneChiudi("Fatto", "btn btn-primary btn-wide"));
     } else if (s.stato === "errore" || s.stato === "annullato") {
       clearInterval(pollTimer);
-      mostraErroreStampa(s.errore || "Stampa interrotta.", c, s.prossimo_indice, s.totale);
+      mostraErroreStampa(s.errore || "Stampa interrotta.", c, s.prossimo_indice, s.totale, s.commessa_id);
     }
   };
   tick(); pollTimer = setInterval(tick, 700);
 }
 
-function mostraErroreStampa(msg, c, prossimo, tot) {
+function mostraErroreStampa(msg, c, prossimo, tot, storicoId = null) {
   $("#sheet-title").textContent = "Stampa non riuscita";
   const warn = $("#sheet-warn"); warn.hidden = false; warn.textContent = msg;
   const box = $("#sheet-actions"); box.textContent = "";
@@ -338,7 +340,7 @@ function mostraErroreStampa(msg, c, prossimo, tot) {
     const rip = bottone("Riprendi stampa", "btn btn-primary btn-wide");
     rip.addEventListener("click", () => {
       const da = Math.max(1, Math.min(tot, parseInt($("#riprendi-da").value, 10) || prossimo));
-      avviaStampa(c, da, tot - da + 1 > 200);
+      avviaStampa(c, da, tot - da + 1 > 200, storicoId);
     });
     box.append(rip);
   }

@@ -73,7 +73,7 @@ class _RasterConIndici(BrotherQLRaster):
 def raster(immagini: List[Image.Image], imp: Impostazioni) -> tuple[bytes, List[int]]:
     """Flusso raster di un unico job + offset di fine di ogni etichetta."""
     qlr = _RasterConIndici(imp.modello)
-    convert(qlr, immagini, imp.etichetta, cut=True, dither=False, compress=False,
+    convert(qlr, immagini, imp.etichetta, cut=True, dither=False, compress=True,
             red=False, rotate="0", dpi_600=False, hq=True, threshold=50)
     data = bytearray(qlr.data)
     # brother_ql 0.9 chiude ogni pagina con 0x1A (fine job): per avere un unico job
@@ -171,6 +171,7 @@ class Job:
     inviate: int = 0                 # etichette completamente inviate (conteggio sulla commessa)
     errore: Optional[str] = None
     annulla: bool = False
+    preparazione: bool = True        # etichette in disegno, invio non ancora iniziato
     creato: float = field(default_factory=time.time)
     commessa_id: Optional[int] = None
 
@@ -181,15 +182,31 @@ class Job:
     def pubblico(self) -> dict:
         return {"id": self.id, "stato": self.stato, "totale": self.totale, "da_indice": self.da_indice,
                 "inviate": self.inviate, "prossimo_indice": self.prossimo_indice, "errore": self.errore,
+                "preparazione": self.preparazione,
                 "commessa_id": self.commessa_id}
 
 
 JOBS: Dict[str, Job] = {}
+
+
+def _disegna(voci: List) -> List[Image.Image]:
+    from .label.label import Etichetta, render_etichetta
+    cache: Dict[Etichetta, Image.Image] = {}
+    out = []
+    for v in voci:
+        if isinstance(v, Etichetta):
+            if v not in cache:
+                cache[v] = render_etichetta(v)
+            v = cache[v]
+        out.append(v)
+    return out
 _lock_stampa = threading.Lock()      # un job alla volta verso la stampante
 
 
-def avvia_job(immagini: List[Image.Image], totale: int, da_indice: int, imp: Impostazioni,
+def avvia_job(immagini: List, totale: int, da_indice: int, imp: Impostazioni,
               al_termine: Optional[Callable[[Job], None]] = None) -> Job:
+    """`immagini`: PIL.Image già pronte oppure `Etichetta` da disegnare nel thread del job
+    (le etichette uguali, es. 5 copie della stessa taglia, vengono disegnate una volta sola)."""
     job = Job(id=uuid.uuid4().hex[:12], totale=totale, da_indice=da_indice, inviate=da_indice - 1)
     JOBS[job.id] = job
     # pulizia dei job vecchi
@@ -205,7 +222,9 @@ def _esegui(job: Job, immagini, imp: Impostazioni, al_termine):
         job.stato = "in_corso"
         s = None
         try:
+            immagini = _disegna(immagini)
             data, fine = raster(immagini, imp)
+            job.preparazione = False
             s = _connetti(imp.ip_stampante)
             # stato prima di stampare, se la stampante lo fornisce
             s.sendall(b"\x00" * 200 + b"\x1b\x40" + b"\x1b\x69\x53")

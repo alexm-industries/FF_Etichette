@@ -48,6 +48,9 @@ def sequenza(c: Commessa) -> List[VoceStampa]:
 def etichette(c: Commessa, imp: Impostazioni, voci: List[VoceStampa] | None = None) -> List[Etichetta]:
     voci = sequenza(c) if voci is None else voci
     tot = len(sequenza(c))
+    # senza contatore indice/totale non compaiono: le copie identiche restano uguali
+    # (e la stampa le disegna una volta sola)
     return [Etichetta(commessa=c.nome, descrizione=v.descrizione, taglia=v.taglia,
-                      indice=v.indice, totale=tot, mostra_commessa=imp.mostra_commessa,
+                      indice=v.indice if imp.contatore else None,
+                      totale=tot if imp.contatore else None, mostra_commessa=imp.mostra_commessa,
                       contatore=imp.contatore, compensazione=imp.compensazione) for v in voci]

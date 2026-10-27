@@ -129,6 +129,7 @@ class RichiestaStampa(BaseModel):
     commessa: Commessa
     da_indice: int = 1               # per riprendere un job interrotto
     conferma_extra: bool = False     # seconda conferma oltre LIMITE_CONFERMA
+    storico_id: Optional[int] = None # ristampa (o ripresa) di una commessa già nello storico
 
 
 @app.post("/api/stampa")
@@ -147,15 +148,15 @@ def stampa(r: RichiestaStampa):
         raise HTTPException(400, "IP della stampante non impostato: vai in Impostazioni.")
     if any(j.stato in ("in_coda", "in_corso") for j in printer.JOBS.values()):
         raise HTTPException(409, "C'è già una stampa in corso.")
-    immagini = [render_etichetta(e) for e in etichette(r.commessa, imp, da_stampare)]
-    job = printer.avvia_job(immagini, tot, r.da_indice, imp, al_termine=_dopo_stampa(r.commessa))
+    if r.storico_id is not None and not storage.leggi_commessa(r.storico_id):
+        raise HTTPException(404, "Commessa non trovata nello storico.")
+    immagini = etichette(r.commessa, imp, da_stampare)      # disegnate nel thread del job
+    cid = r.storico_id if r.storico_id is not None else storage.salva_commessa(r.commessa)
+    sid = storage.registra_stampa(cid, r.commessa, r.da_indice)
+    job = printer.avvia_job(immagini, tot, r.da_indice, imp,
+                            al_termine=lambda j: storage.chiudi_stampa(sid, j.stato, j.inviate, j.errore))
+    job.commessa_id = cid
     return job.pubblico()
-
-
-def _dopo_stampa(c: Commessa):
-    def cb(job):
-        pass     # il salvataggio nello storico arriva al passo 5
-    return cb
 
 
 @app.get("/api/stampa/{job_id}")
@@ -261,6 +262,20 @@ def info():
     img = qrcode.make(url, image_factory=qrcode.image.svg.SvgPathImage, border=1)
     buf = io.BytesIO(); img.save(buf)
     return {"url": url, "qr_svg": buf.getvalue().decode()}
+
+
+# ---------------------------------------------------------------- storico
+@app.get("/api/storico")
+def storico(q: str = Query("", max_length=200)):
+    return storage.elenco_commesse(q)
+
+
+@app.get("/api/storico/{cid}")
+def storico_dettaglio(cid: int):
+    d = storage.leggi_commessa(cid)
+    if not d:
+        raise HTTPException(404, "Commessa non trovata.")
+    return d
 
 
 # ---------------------------------------------------------------- fase 2: import (predisposto)
