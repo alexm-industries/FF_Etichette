@@ -542,7 +542,23 @@ async function salvaImpostazioni(ev) {
   } catch (e) { toast(e.message, true); }
 }
 
+// IP, modello e rotolo si salvano subito: verifica e prove usano le impostazioni salvate,
+// e una prova mandata col rotolo sbagliato manda in errore la stampante
+async function salvaStampante() {
+  const f = $("#form-imp");
+  const body = { ip_stampante: f.ip_stampante.value.trim(), modello: f.modello.value, etichetta: f.etichetta.value };
+  if (Object.keys(body).every(k => (impostazioni[k] || "") === body[k])) return true;
+  try {
+    await api("/api/impostazioni", { method: "PUT", json: body });
+    Object.assign(impostazioni, body);
+    $("#top-sub").textContent = body.ip_stampante ? `Stampante ${body.ip_stampante}` : "Stampante non configurata";
+    toast("Impostazioni stampante salvate");
+    return true;
+  } catch (e) { toast(e.message, true); return false; }
+}
+
 async function verificaStampante() {
+  if (!await salvaStampante()) return;
   const pill = $("#stato-stampante");
   pill.className = "pill"; pill.textContent = "Verifico…";
   try {
@@ -556,6 +572,7 @@ async function verificaStampante() {
 }
 
 async function stampaProva(percorso = "/api/stampante/prova") {
+  if (!await salvaStampante()) return;
   let job;
   try { job = await (await api(percorso, { method: "POST" })).json(); }
   catch (e) { return toast(e.message, true); }
@@ -649,6 +666,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#stampa").addEventListener("click", apriConferma);
   $("#form-imp").addEventListener("submit", salvaImpostazioni);
   $("#verifica").addEventListener("click", verificaStampante);
+  ["modello", "etichetta"].forEach(n => $("#form-imp")[n].addEventListener("change", salvaStampante));
+  $("#form-imp").ip_stampante.addEventListener("change", salvaStampante);
   $("#prova").addEventListener("click", () => stampaProva());
   $("#prova-comp").addEventListener("click", () => stampaProva("/api/stampante/prova-compensazione"));
   $("#togli-pin").addEventListener("click", async () => {
