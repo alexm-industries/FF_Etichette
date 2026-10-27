@@ -81,14 +81,23 @@ stampata non si modifica più: si ristampa o si duplica.
 
 ### Importa file
 
-**Importa file** legge un file CSV o Excel (.xlsx) e compila il modulo, da controllare prima di
-stampare. Le colonne si riconoscono dal nome dell'intestazione:
+**Importa file** compila il modulo da un file, da controllare prima di stampare.
+
+**Scheda di produzione Word (.docx)**, il formato usato in laboratorio:
+
+- commessa = campo **Cliente** della tabella in testa;
+- un articolo per ogni titolo **"Articolo N - X pz"**: descrizione = Articolo + Colore capo +
+  Marca e codice (se c'è); quantità dalla tabella **Quantità per taglia**;
+- se le taglie non sommano al **Totale** o agli **X pz** del titolo, l'import lo segnala.
+
+I vecchi .doc vanno prima salvati come .docx da Word.
+
+**CSV o Excel (.xlsx)**: le colonne si riconoscono dal nome dell'intestazione:
 
 - una riga per articolo e taglia: `Articolo | (Grammatura) | (Colore) | Taglia | Quantità`;
 - oppure una colonna per taglia: `Articolo | (Colore) | XS | S | M | L | …`.
 
 Facoltativa una colonna `Commessa` (o `Ordine`, `Cliente`): se manca, il nome è quello del file.
-Il formato definitivo del file d'ordine Fortitude va ancora fissato su un file reale.
 
 ## Impostazioni
 
