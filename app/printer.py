@@ -256,11 +256,12 @@ def _esegui(job: Job, immagini, imp: Impostazioni, al_termine):
             job.stato, job.errore = "errore", str(e)
         except (socket.timeout, TimeoutError):
             job.stato = "errore"
-            job.errore = (f"La stampante ha smesso di rispondere dopo {job.inviate} etichette su {job.totale}. "
-                          "Controlla il rotolo e riprendi.")
+            job.errore = (f"La stampante ha smesso di ricevere dopo {job.inviate} etichette inviate su {job.totale}: "
+                          "le ultime inviate potrebbero non essere state stampate. "
+                          "Controlla il rotolo e le etichette uscite, poi riprendi.")
         except OSError as e:
             job.stato = "errore"
-            job.errore = (f"Connessione con la stampante persa dopo {job.inviate} etichette su {job.totale} "
+            job.errore = (f"Connessione con la stampante persa dopo {job.inviate} etichette inviate su {job.totale} "
                           f"({e.strerror or e}).")
         except Exception as e:      # conversione o altro errore inatteso
             job.stato, job.errore = "errore", f"Errore inatteso: {e}"
