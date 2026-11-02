@@ -108,6 +108,15 @@ Tesseract si installa a parte (una volta sola): su Windows
 `C:\Program Files\Tesseract-OCR\tessdata\`; su macOS `brew install tesseract tesseract-lang`.
 Senza Tesseract si importano comunque i PDF esportati da Word.
 
+**Conferma d'ordine in PDF** (tabella Codice | Descrizione | Q.tà | Prezzo…, es. OFF251):
+
+- commessa = il **Cliente** della conferma;
+- un articolo per riga d'ordine, anche se continua alla pagina dopo; descrizione = la prima
+  frase della descrizione (es. "T-shirt Color Block 1 - nera");
+- taglie dal testo dopo **"Taglie:"** (es. `M 1 - L 1 - XL 1`); una nota tra parentesi dopo la
+  taglia (`M 1 (donna)`) diventa un articolo a parte con la nota nella descrizione;
+- se le taglie non sommano alla **Q.tà**, o c'è altro testo ("+ 3 pz aggiuntivi"), l'import lo segnala.
+
 **CSV o Excel (.xlsx)**: le colonne si riconoscono dal nome dell'intestazione:
 
 - una riga per articolo e taglia: `Articolo | (Grammatura) | (Colore) | Taglia | Quantità`;

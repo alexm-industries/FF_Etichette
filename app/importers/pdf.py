@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from typing import Callable, Dict, List, Optional, Tuple
 
+from ..models import Commessa
 from .base import Importer, ImportNonDisponibile, MappaturaColonne, RisultatoImport
 from .tabella import _norm, _taglia_da_intestazione
 from .word import K_ARTICOLO, K_CLIENTE, K_CODICE, K_COLORE, _TITOLO, _primo, componi_scheda
@@ -237,10 +238,11 @@ def _pagine_pdf(contenuto: bytes) -> Tuple[List[List[Parola]], int]:
             if len(pdf.pages) > MAX_PAGINE:
                 raise ImportNonDisponibile(f"Il PDF ha {len(pdf.pages)} pagine: ne leggo al massimo {MAX_PAGINE}.")
             for pg in pdf.pages:
+                # anche i segni da soli ("-", "+"): servono nelle descrizioni della conferma d'ordine
                 parole = [Parola(t, w["x0"], w["top"], w["x1"], w["bottom"])
                           for w in pg.extract_words(x_tolerance=1.5, y_tolerance=2)
-                          if (t := _pulisci(w["text"])) and _utile(t)]
-                if len(parole) < 5:              # niente testo: è una scansione
+                          if (t := _pulisci(w["text"]))]
+                if sum(_utile(p.testo) for p in parole) < 5:     # niente testo: è una scansione
                     ocr += 1
                     if ocr > MAX_PAGINE_OCR:
                         raise ImportNonDisponibile(
@@ -400,7 +402,7 @@ def interpreta(pagine: List[List[Parola]]) -> Tuple[str, List[dict], List[str]]:
         return a
 
     for parole in pagine:
-        rr = righe(parole)
+        rr = righe([p for p in parole if _utile(p.testo)])
         i = 0
         while i < len(rr):
             r = rr[i]
@@ -446,7 +448,17 @@ class ImporterPdf(Importer):
             pagine, ocr = _pagine_pdf(contenuto)
         if not any(pagine):
             raise ImportNonDisponibile("Nel file non trovo testo leggibile.")
+        avviso_ocr = ["Letto con l'OCR (scansione o foto): controlla bene nome, descrizioni e quantità."] if ocr else []
+        from .conferma import interpreta_conferma
+        conferma = interpreta_conferma(pagine)
+        if conferma is not None:
+            nome, arts, avvisi = conferma
+            if not arts:
+                raise ImportNonDisponibile("Nella conferma d'ordine non trovo righe con le taglie "
+                                           "(es. «Taglie: M 1 - L 1»).")
+            if not nome:
+                nome = os.path.splitext(os.path.basename(nome_file))[0].replace("_", " ").strip()
+                avvisi.append("Cliente non trovato nel documento: come commessa uso il nome del file.")
+            return RisultatoImport(commessa=Commessa(nome=nome[:200], articoli=arts), avvisi=avviso_ocr + avvisi)
         nome, articoli, avvisi = interpreta(pagine)
-        if ocr:
-            avvisi.insert(0, "Letto con l'OCR (scansione o foto): controlla bene nome, descrizioni e quantità.")
-        return componi_scheda(articoli, nome, avvisi, nome_file)
+        return componi_scheda(articoli, nome, avviso_ocr + avvisi, nome_file)
