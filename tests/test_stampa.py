@@ -95,6 +95,56 @@ def test_raster_un_job_dieci_pagine():
     assert all(data[f - 1:f] == b"\x0c" for f in fine[:-1])      # form feed tra le etichette
 
 
+def _media(data: bytes, pagina: int = 0):
+    """(tipo, larghezza mm, lunghezza mm, righe raster, margine) dai comandi ESC i z / ESC i d."""
+    import struct
+    i = -1
+    for _ in range(pagina + 1):
+        i = data.index(b"\x1b\x69\x7a", i + 1)
+    tipo, larg, lung = data[i + 4], data[i + 5], data[i + 6]
+    righe = struct.unpack("<L", data[i + 7:i + 11])[0]
+    j = data.index(b"\x1b\x69\x64", i)
+    return tipo, larg, lung, righe, struct.unpack("<H", data[j + 3:j + 5])[0]
+
+
+@pytest.mark.parametrize("rotolo", ["62", "62red"])
+def test_raster_continuo_tagliato_a_100mm(rotolo):
+    from app.label.label import render_label
+    imp = Impostazioni(etichetta=rotolo)
+    img = render_label("Rossi Srl", "T-shirt", "M")
+    data, fine = printer.raster([img, img], imp)
+    assert len(fine) == 2 and data[fine[-1] - 1:fine[-1]] == b"\x1a"
+    tipo, larg, lung, righe, margine = _media(data, 1)
+    assert (tipo, larg, lung) == (0x0A, 62, 0)                    # continuo 62 mm
+    # avanzamento in testa e in coda + righe = 100 mm a 300 dpi
+    assert righe == printer.RIGHE_CONTINUO and righe + 2 * margine == round(100 / 25.4 * 300)
+    due_colori = b"\x77\x01" in data and b"\x77\x02" in data
+    assert due_colori == (rotolo == "62red")
+    # l'etichetta resta identica, solo centrata con righe bianche sopra e sotto
+    p = printer.per_rotolo(img, rotolo).convert("L")
+    sopra = (printer.RIGHE_CONTINUO - img.height) // 2
+    assert p.size == (696, printer.RIGHE_CONTINUO)
+    assert p.crop((0, sopra, 696, sopra + img.height)).tobytes() == img.convert("L").tobytes()
+
+
+def test_raster_fustellata_invariato():
+    from app.label.label import render_label
+    data, _ = printer.raster([render_label("R", "T", "M")], Impostazioni())
+    assert _media(data)[:4] == (0x0B, 62, 100, 1109)
+
+
+def test_rotolo_continuo_con_impostazione_fustellata():
+    imp = Impostazioni(etichetta="62x100")
+    msg = printer.problemi({"errors": [], "media_width": 62, "media_length": 0}, imp)
+    assert msg and "62 mm continuo" in msg[0] and "DK-11202" in msg[0]
+    assert printer.problemi({"errors": [], "media_width": 62, "media_length": 0}, Impostazioni(etichetta="62red")) == []
+
+
+def test_impostazione_etichetta_valida(client):
+    assert client.put("/api/impostazioni", json={"etichetta": "62red"}).json()["etichetta"] == "62red"
+    assert client.put("/api/impostazioni", json={"etichetta": "29x90"}).status_code == 400
+
+
 def test_stampa_completa(client, monkeypatch):
     fake = FintaStampante(stato=stato_bytes())
     _usa(monkeypatch, client, fake)

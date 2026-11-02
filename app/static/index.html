@@ -24,18 +24,47 @@
   <section id="v-nuova" class="view">
     <div class="cols">
       <div class="col-form">
+        <div class="segmented" role="radiogroup" aria-label="Tipo di etichetta">
+          <button type="button" role="radio" data-tipo="capo">Singolo capo<small>Un'etichetta per busta</small></button>
+          <button type="button" role="radio" data-tipo="ordine">Intero ordine<small>Riepilogo per la consegna</small></button>
+        </div>
+
+        <p class="bozza-info" id="bozza-info" hidden></p>
+
         <label class="field">
           <span class="field-label">Commessa</span>
           <input id="commessa" type="text" placeholder="Cliente, ordine o riferimento" autocomplete="off" maxlength="200">
         </label>
 
+        <div class="card" id="ordine-opzioni" hidden>
+          <div class="ordine-copie">
+            <div>
+              <span class="field-label">Copie dell'etichetta</span>
+              <span class="muted">Una per ogni scatola o busta di consegna</span>
+            </div>
+            <div class="stepper">
+              <button type="button" class="step" id="copie-meno" aria-label="Meno">&minus;</button>
+              <input class="copie" id="copie-ordine" type="number" inputmode="numeric" min="1" max="99" value="1" aria-label="Copie dell'etichetta">
+              <button type="button" class="step" id="copie-piu" aria-label="Più">+</button>
+            </div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="numera-colli">
+            <span>Numera i colli ("Collo 1/3, 2/3…")</span>
+          </label>
+          <p class="muted">Per ogni articolo indica quanti capi ci sono per taglia: l'etichetta riporta il riepilogo dell'intero ordine.</p>
+        </div>
+
         <div id="articoli"></div>
 
         <button class="btn btn-outline btn-wide" id="add-articolo" type="button">+ Aggiungi articolo</button>
 
+        <button class="btn btn-dark btn-wide salva-dopo" id="salva-dopo" type="button">Salva per dopo</button>
+
         <div class="row-actions">
           <button class="btn btn-ghost" id="svuota" type="button">Svuota</button>
-          <button class="btn btn-ghost" id="importa" type="button" title="Disponibile quando definiamo il formato del file d'ordine" disabled>Importa file</button>
+          <button class="btn btn-ghost" id="importa" type="button" title="Scheda di produzione Word o PDF, foto della scheda, CSV o Excel">Importa file</button>
+          <input type="file" id="file-import" accept=".docx,.pdf,.jpg,.jpeg,.png,image/jpeg,image/png,.csv,.tsv,.txt,.xlsx,.xlsm" hidden>
         </div>
       </div>
 
@@ -44,6 +73,10 @@
           <div class="preview-head">
             <h2>Anteprima</h2>
             <span id="preview-label" class="muted"></span>
+            <span class="pager" id="pager" hidden>
+              <button type="button" class="icon-btn" id="foglio-prec" aria-label="Foglio precedente">&lsaquo;</button>
+              <button type="button" class="icon-btn" id="foglio-succ" aria-label="Foglio successivo">&rsaquo;</button>
+            </span>
           </div>
           <div class="preview-frame"><img id="preview" alt="Anteprima etichetta" width="696" height="1109"></div>
         </div>
@@ -62,6 +95,11 @@
   <!-- ============ STORICO ============ -->
   <section id="v-storico" class="view" hidden>
     <h2 class="view-title">Storico</h2>
+    <div class="filtri" role="radiogroup" aria-label="Filtra">
+      <button type="button" role="radio" data-stato="" class="is-on">Tutte</button>
+      <button type="button" role="radio" data-stato="bozze">Da stampare</button>
+      <button type="button" role="radio" data-stato="stampate">Stampate</button>
+    </div>
     <label class="field">
       <span class="field-label">Cerca</span>
       <input id="cerca" type="search" placeholder="Commessa o articolo">
@@ -78,16 +116,19 @@
         <span class="field-label">Indirizzo IP</span>
         <input name="ip_stampante" inputmode="decimal" placeholder="es. 192.168.1.50" autocomplete="off">
       </label>
-      <div class="grid2">
-        <label class="field">
-          <span class="field-label">Modello</span>
-          <select name="modello"><option>QL-810W</option><option>QL-820NWB</option></select>
-        </label>
-        <label class="field">
-          <span class="field-label">Etichetta</span>
-          <select name="etichetta"><option value="62x100">62x100 mm</option></select>
-        </label>
-      </div>
+      <label class="field">
+        <span class="field-label">Modello</span>
+        <select name="modello"><option>QL-810W</option><option>QL-820NWB</option></select>
+      </label>
+      <label class="field">
+        <span class="field-label">Etichetta (rotolo nella stampante)</span>
+        <select name="etichetta">
+          <option value="62x100">Fustellata 62 x 100 mm (DK-11202)</option>
+          <option value="62">Continua 62 mm, taglio a 100 mm (DK-22205)</option>
+          <option value="62red">Continua nero/rosso 62 mm, taglio a 100 mm (DK-22251)</option>
+        </select>
+      </label>
+      <p class="muted">Deve corrispondere al rotolo inserito, altrimenti la stampante va in errore. Sui rotoli continui l'etichetta viene tagliata a 100 mm, uguale alla fustellata.</p>
       <div class="printer-status">
         <span id="stato-stampante" class="pill">Stato non verificato</span>
         <button class="btn btn-outline" type="button" id="verifica">Verifica stampante</button>

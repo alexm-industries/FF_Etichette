@@ -62,9 +62,65 @@ Conviene assegnare alla stampante un **IP fisso** (prenotazione DHCP nel router)
 Ordine di stampa: articolo per articolo; dentro l'articolo le taglie dalla più piccola alla più
 grande (taglie bimbo come 4-6A e 8-10A, poi XS…3XL, poi 4XL, 5XL…, poi le altre personalizzate).
 
+### Singolo capo / Intero ordine
+
+In alto nel modulo si sceglie il tipo di etichetta:
+
+- **Singolo capo**: un'etichetta per busta, come sopra (il numero accanto alla taglia = etichette).
+- **Intero ordine**: un'etichetta di **riepilogo** da mettere sulla scatola o busta di consegna.
+  Stessa testata e stesso piede, fascia nera con il nome commessa, poi per ogni articolo le caselle
+  taglia con il numero di capi (il numero accanto alla taglia = capi). In fondo il totale capi.
+  - **Copie dell'etichetta**: una per collo; con **Numera i colli** in testata compare "COLLO 1/3".
+  - Se gli articoli non stanno su un'etichetta, il riepilogo continua su più fogli ("foglio 1/2 · segue").
+
+### Salva per dopo
+
+**Salva per dopo** (in fondo al modulo) mette la commessa nello storico senza stamparla. In
+**Storico → Da stampare** si apre e si sceglie **Stampa**, **Modifica** o **Elimina**. Una volta
+stampata non si modifica più: si ristampa o si duplica.
+
+### Importa file
+
+**Importa file** compila il modulo da un file, da controllare prima di stampare.
+
+**Scheda di produzione Word (.docx)**, il formato usato in laboratorio:
+
+- commessa = campo **Cliente** della tabella in testa;
+- un articolo per ogni titolo **"Articolo N - X pz"**: descrizione = Articolo + Colore capo +
+  Marca e codice (se c'è); quantità dalla tabella **Quantità per taglia**;
+- se le taglie non sommano al **Totale** o agli **X pz** del titolo, l'import lo segnala.
+
+I vecchi .doc vanno prima salvati come .docx da Word.
+
+**La stessa scheda in PDF, scansionata o fotografata (.pdf, .jpg, .png)**: si legge allo stesso modo.
+
+- PDF esportato da Word: il testo si legge direttamente dal file, preciso come il .docx.
+- PDF scansionato o foto della scheda: la pagina passa dall'**OCR Tesseract**, che gira sul
+  computer (nessun servizio esterno, nessun costo). Prima la pagina viene raddrizzata e le linee
+  delle tabelle cancellate; le quantità poco chiare vengono rilette cella per cella come sole cifre.
+  Ci vogliono alcuni secondi per pagina. L'import avvisa sempre di controllare: l'OCR può sbagliare
+  una lettera o una cifra, e il controllo sul **Totale** segnala le quantità che non tornano.
+- Per le foto: scheda intera, dritta, ben illuminata, senza ombre forti.
+
+Tesseract si installa a parte (una volta sola): su Windows
+`winget install UB-Mannheim.TesseractOCR`, poi la lingua italiana copiando
+[`ita.traineddata`](https://github.com/tesseract-ocr/tessdata_fast/raw/main/ita.traineddata) in
+`C:\Program Files\Tesseract-OCR\tessdata\`; su macOS `brew install tesseract tesseract-lang`.
+Senza Tesseract si importano comunque i PDF esportati da Word.
+
+**CSV o Excel (.xlsx)**: le colonne si riconoscono dal nome dell'intestazione:
+
+- una riga per articolo e taglia: `Articolo | (Grammatura) | (Colore) | Taglia | Quantità`;
+- oppure una colonna per taglia: `Articolo | (Colore) | XS | S | M | L | …`.
+
+Facoltativa una colonna `Commessa` (o `Ordine`, `Cliente`): se manca, il nome è quello del file.
+
 ## Impostazioni
 
-- IP, modello ed etichetta della stampante.
+- IP, modello ed etichetta della stampante. **Etichetta** = rotolo inserito:
+  fustellata 62 x 100 mm (DK-11202), continua 62 mm (DK-22205) o continua nero/rosso 62 mm
+  (DK-22251). Sui continui l'etichetta viene tagliata a 100 mm, con la stessa grafica della
+  fustellata; sul nero/rosso la stampa è in nero (modalità due colori, richiesta dal rotolo).
 - **Mostra il nome commessa** accanto all'articolo sull'etichetta (sì/no).
 - **Contatore "3/5"** sull'etichetta (default spento).
 - **Compensazione stampa termica**: la stampante ingrassa leggermente il nero e il grassetto
@@ -93,5 +149,5 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 
 - `app/label/label.py`: disegno dell'etichetta (dal template in `docs/template/`).
 - `app/main.py`: API FastAPI; `app/printer.py`: stampa di rete; `app/storage.py`: SQLite in `data/`.
-- `app/importers/`: predisposto per l'import dei file d'ordine (fase 2).
+- `app/importers/`: import dei file d'ordine (Word, PDF/OCR, CSV/Excel).
 - `app/static/`: interfaccia (HTML/CSS/JS, nessuna build).
