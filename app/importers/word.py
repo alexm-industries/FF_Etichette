@@ -161,31 +161,37 @@ class ImporterWord(Importer):
                     for k, v in kv.items():
                         cur["kv"].setdefault(k, v)
 
-        arts = []
-        for a in articoli:
-            n = a["n"]
-            if not a["capi"]:
-                avvisi.append(f"Articolo {n}: nessuna quantità per taglia, saltato.")
-                continue
-            somma = sum(a["capi"].values())
-            if a["tot"] is not None and a["tot"] != somma:
-                avvisi.append(f"Articolo {n}: le taglie sommano {somma} capi ma il Totale della tabella è {a['tot']}.")
-            if a["pz"] is not None and a["pz"] != somma:
-                avvisi.append(f"Articolo {n}: le taglie sommano {somma} capi ma il titolo dice {a['pz']} pz.")
-            art = _primo(a["kv"], K_ARTICOLO)
-            colore = _primo(a["kv"], K_COLORE)
-            codice = _primo(a["kv"], K_CODICE)
-            if not art:
-                avvisi.append(f"Articolo {n}: descrizione non trovata.")
-            parti = [art, colore.lower() if colore else "", codice]
-            descr = " ".join(p for p in parti if p and p != "-")
-            arts.append(Articolo(descrizione=descr[:300],
-                                 righe=[RigaTaglia(taglia=t[:40], copie=min(q, 9999)) for t, q in a["capi"].items()]))
+        return componi_scheda(articoli, nome, avvisi, nome_file)
 
-        if not arts:
-            raise ImportNonDisponibile("Nel documento non trovo la tabella «Quantità per taglia» "
-                                       "(una riga con le taglie XS, S, M… e sotto le quantità).")
-        if not nome:
-            nome = os.path.splitext(os.path.basename(nome_file))[0].replace("_", " ").strip()
-            avvisi.append("Cliente non trovato nel documento: come commessa uso il nome del file.")
-        return RisultatoImport(commessa=Commessa(nome=nome[:200], articoli=arts), avvisi=avvisi)
+
+def componi_scheda(articoli: List[dict], nome: str, avvisi: List[str], nome_file: str) -> RisultatoImport:
+    """Commessa dagli articoli letti dalla scheda ({n, pz, kv, capi, tot}), con i controlli sui totali.
+    Usata sia per il Word sia per il PDF."""
+    arts = []
+    for a in articoli:
+        n = a["n"]
+        if not a["capi"]:
+            avvisi.append(f"Articolo {n}: nessuna quantità per taglia, saltato.")
+            continue
+        somma = sum(a["capi"].values())
+        if a["tot"] is not None and a["tot"] != somma:
+            avvisi.append(f"Articolo {n}: le taglie sommano {somma} capi ma il Totale della tabella è {a['tot']}.")
+        if a["pz"] is not None and a["pz"] != somma:
+            avvisi.append(f"Articolo {n}: le taglie sommano {somma} capi ma il titolo dice {a['pz']} pz.")
+        art = _primo(a["kv"], K_ARTICOLO)
+        colore = _primo(a["kv"], K_COLORE)
+        codice = _primo(a["kv"], K_CODICE)
+        if not art:
+            avvisi.append(f"Articolo {n}: descrizione non trovata.")
+        parti = [art, colore.lower() if colore else "", codice]
+        descr = " ".join(p for p in parti if p and p != "-")
+        arts.append(Articolo(descrizione=descr[:300],
+                             righe=[RigaTaglia(taglia=t[:40], copie=min(q, 9999)) for t, q in a["capi"].items()]))
+
+    if not arts:
+        raise ImportNonDisponibile("Nel documento non trovo la tabella «Quantità per taglia» "
+                                   "(una riga con le taglie XS, S, M… e sotto le quantità).")
+    if not nome:
+        nome = os.path.splitext(os.path.basename(nome_file))[0].replace("_", " ").strip()
+        avvisi.append("Cliente non trovato nel documento: come commessa uso il nome del file.")
+    return RisultatoImport(commessa=Commessa(nome=nome[:200], articoli=arts), avvisi=avvisi)

@@ -92,6 +92,22 @@ stampata non si modifica più: si ristampa o si duplica.
 
 I vecchi .doc vanno prima salvati come .docx da Word.
 
+**La stessa scheda in PDF, scansionata o fotografata (.pdf, .jpg, .png)**: si legge allo stesso modo.
+
+- PDF esportato da Word: il testo si legge direttamente dal file, preciso come il .docx.
+- PDF scansionato o foto della scheda: la pagina passa dall'**OCR Tesseract**, che gira sul
+  computer (nessun servizio esterno, nessun costo). Prima la pagina viene raddrizzata e le linee
+  delle tabelle cancellate; le quantità poco chiare vengono rilette cella per cella come sole cifre.
+  Ci vogliono alcuni secondi per pagina. L'import avvisa sempre di controllare: l'OCR può sbagliare
+  una lettera o una cifra, e il controllo sul **Totale** segnala le quantità che non tornano.
+- Per le foto: scheda intera, dritta, ben illuminata, senza ombre forti.
+
+Tesseract si installa a parte (una volta sola): su Windows
+`winget install UB-Mannheim.TesseractOCR`, poi la lingua italiana copiando
+[`ita.traineddata`](https://github.com/tesseract-ocr/tessdata_fast/raw/main/ita.traineddata) in
+`C:\Program Files\Tesseract-OCR\tessdata\`; su macOS `brew install tesseract tesseract-lang`.
+Senza Tesseract si importano comunque i PDF esportati da Word.
+
 **CSV o Excel (.xlsx)**: le colonne si riconoscono dal nome dell'intestazione:
 
 - una riga per articolo e taglia: `Articolo | (Grammatura) | (Colore) | Taglia | Quantità`;
@@ -133,5 +149,5 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 
 - `app/label/label.py`: disegno dell'etichetta (dal template in `docs/template/`).
 - `app/main.py`: API FastAPI; `app/printer.py`: stampa di rete; `app/storage.py`: SQLite in `data/`.
-- `app/importers/`: predisposto per l'import dei file d'ordine (fase 2).
+- `app/importers/`: import dei file d'ordine (Word, PDF/OCR, CSV/Excel).
 - `app/static/`: interfaccia (HTML/CSS/JS, nessuna build).

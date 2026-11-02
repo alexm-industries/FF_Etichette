@@ -1,6 +1,6 @@
 /* Service worker minimo: rende l'app installabile e tiene in cache l'interfaccia.
    Le chiamate /api passano sempre dalla rete (anteprime e stampa devono essere fresche). */
-const CACHE = "ff-etichette-v2";
+const CACHE = "ff-etichette-v3";
 const SHELL = ["/", "/style.css", "/app.js", "/storico.js", "/manifest.webmanifest", "/icons/icon-192.png",
   "/fonts/BigShoulders-Bold.ttf", "/fonts/InstrumentSans-Regular.ttf", "/fonts/InstrumentSans-Bold.ttf"];
 

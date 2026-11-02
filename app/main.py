@@ -7,12 +7,14 @@ import ipaddress
 import os
 import re
 import socket
+import threading
 from functools import lru_cache
 from typing import Optional
 
 import qrcode
 import qrcode.image.svg
 from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -362,18 +364,23 @@ def elimina_salvata(cid: int):
 
 
 # ---------------------------------------------------------------- import file d'ordine
-MAX_FILE_IMPORT = 5 * 1024 * 1024
+MAX_FILE_IMPORT = 15 * 1024 * 1024        # le foto del telefono arrivano a 5-10 MB
+_LOCK_IMPORT = threading.Lock()            # l'OCR impegna la CPU: un import alla volta
+
+
+def _importa(nome: str, contenuto: bytes) -> dict:
+    with _LOCK_IMPORT:
+        return trova_importer(nome, contenuto).importa(contenuto, nome_file=nome).model_dump()
 
 
 @app.post("/api/import")
 async def importa(file: UploadFile = File(...)):
     contenuto = await file.read(MAX_FILE_IMPORT + 1)
     if len(contenuto) > MAX_FILE_IMPORT:
-        raise HTTPException(413, "File troppo grande (massimo 5 MB).")
-    nome = file.filename or ""
+        raise HTTPException(413, "File troppo grande (massimo 15 MB).")
     try:
-        imp = trova_importer(nome, contenuto)
-        return imp.importa(contenuto, nome_file=nome).model_dump()
+        # PDF scansionati e foto passano dall'OCR (qualche secondo): fuori dal ciclo del server
+        return await run_in_threadpool(_importa, file.filename or "", contenuto)
     except ImportNonDisponibile as e:
         raise HTTPException(422, str(e))
 

@@ -415,9 +415,12 @@ async function importaFile(file) {
   if (!file) return;
   if (totale() && !confirm("Sostituire la commessa nel modulo con quella del file?")) return;
   const fd = new FormData(); fd.append("file", file);
+  const btn = $("#importa");
+  btn.disabled = true; btn.textContent = "Leggo il file…";   // PDF scansionati e foto: qualche secondo
   let d;
   try { d = await (await api("/api/import", { method: "POST", body: fd })).json(); }
   catch (e) { return toast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = "Importa file"; }
   const c = d.commessa;
   stato = { ...nuovaCommessa(stato.tipo), nome: c.nome, articoli: c.articoli,
             copie_ordine: stato.copie_ordine, numera_colli: stato.numera_colli };
